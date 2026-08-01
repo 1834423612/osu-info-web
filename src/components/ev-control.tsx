@@ -22,8 +22,8 @@ export function EvControl({
     >
       <Icon icon="solar:bolt-circle-bold" />
       <span>
-        <small>EV 图层</small>
-        <strong>{loading ? "查找中" : `${stationCount} 个充电点`}</strong>
+        <small>附近 DC 快充</small>
+        <strong>{loading ? "读取公共数据" : `${stationCount} 个快充站`}</strong>
       </span>
       <i />
     </button>

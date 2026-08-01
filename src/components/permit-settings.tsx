@@ -1,9 +1,9 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { PermitPreviewPanel } from "@/components/map/permit-preview-panel";
+import { CampusParkingMap } from "@/components/map/campus-parking-map";
 import {
   ACCESSIBLE_PERMIT_GUIDANCE,
   getCurrentAccessSummary,
@@ -35,17 +35,19 @@ export function getSelectedPermitLabel(code: string) {
 export function PermitSettings({
   open,
   selectedCode,
+  now,
   onSave,
   onClose,
 }: {
   open: boolean;
   selectedCode: string;
+  now: number;
   onSave: (code: string) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(selectedCode);
-  const [referenceTime, setReferenceTime] = useState(() => Date.now());
   const [previewMapEnabled, setPreviewMapEnabled] = useState(false);
+  const modalRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 821px)");
@@ -62,17 +64,58 @@ export function PermitSettings({
     if (!open) return;
     const frame = window.requestAnimationFrame(() => {
       setDraft(selectedCode);
-      setReferenceTime(Date.now());
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, selectedCode]);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const preferred = modalRef.current?.querySelector<HTMLElement>(
+        ".permit-choice.is-active",
+      );
+      const fallback = modalRef.current?.querySelector<HTMLElement>(
+        'button[aria-label="关闭"]',
+      );
+      (preferred ?? fallback)?.focus({ preventScroll: true });
     });
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !modalRef.current) return;
+      const focusable = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable.at(-1) ?? first;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", handleKey);
+      if (previousFocus?.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
     };
-  }, [onClose, open, selectedCode]);
+  }, [onClose, open]);
 
   const permit = useMemo(
     () => (isPermitCode(draft) ? PARKING_PERMITS.find((item) => item.code === draft) : undefined),
@@ -81,9 +124,9 @@ export function PermitSettings({
   const summary = useMemo(
     () =>
       isPermitCode(draft)
-        ? getCurrentAccessSummary(draft, referenceTime)
+        ? getCurrentAccessSummary(draft, now)
         : undefined,
-    [draft, referenceTime],
+    [draft, now],
   );
   const previewZones = useMemo(
     () => (summary ? resolvePermitZones(summary) : []),
@@ -106,6 +149,7 @@ export function PermitSettings({
         aria-label="关闭停车证设置"
       />
       <section
+        ref={modalRef}
         className="permit-modal"
         role="dialog"
         aria-modal="true"
@@ -213,21 +257,18 @@ export function PermitSettings({
               {summary && previewZones.length > 0 ? (
                 <>
                   {previewMapEnabled && (
-                    <PermitPreviewPanel
-                      permitAreas={previewAreas.data}
-                      showPermitAreas={!previewAreas.error}
+                    <CampusParkingMap
+                      variant="permit-preview"
+                      permitLayer={{
+                        areas: previewAreas.data,
+                        visible: !previewAreas.error,
+                        permitCode: summary.permit.officialCode,
+                        zones: previewZones,
+                        loading: previewAreas.loading,
+                        error: previewAreas.error,
+                      }}
                     />
                   )}
-                  <div className="permit-preview__identity">
-                    <span className="permit-preview__ticket">
-                      <Icon icon="solar:ticket-bold-duotone" />
-                      {summary.permit.officialCode}
-                    </span>
-                    <span>
-                      <small>当前可用地面区域</small>
-                      <strong>{previewZones.join(" / ")}</strong>
-                    </span>
-                  </div>
                   <div
                     className={cn(
                       "permit-preview__status",

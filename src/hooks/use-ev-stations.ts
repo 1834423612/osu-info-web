@@ -2,150 +2,227 @@
 
 import { useEffect, useState } from "react";
 
-import type { EvStation } from "@/types/ev";
+import type { EvStation, EvStationsResponse } from "@/types/ev";
 
-const CACHE_KEY = "buckeye-parking:ev-stations:v1";
-const CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
-const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const CAMPUS_CENTER = { latitude: 40.0067, longitude: -83.0305 };
-
-type OverpassElement = {
-  id: number;
-  type: string;
-  lat?: number;
-  lon?: number;
-  center?: { lat?: number; lon?: number };
-  tags?: Record<string, string>;
-};
+const CACHE_KEY = "buckeye-parking:ev-stations:v2";
+const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
+const REFRESH_INTERVAL = 15 * 60 * 1000;
+const EV_STATIONS_ENDPOINT = "/api/ev/stations";
 
 type CachedStations = {
   savedAt: number;
+  payload: EvStationsResponse;
+};
+
+type EvStationsState = {
   stations: EvStation[];
+  loading: boolean;
+  error?: string;
+  warning?: string;
+  isFallback: boolean;
+  updatedAt?: string;
 };
 
-const fallbackTesla: EvStation = {
-  id: "fallback-tesla-third",
-  name: "Tesla Supercharger · Grandview Yard",
-  latitude: 39.9859,
-  longitude: -83.0252,
-  address: "820 W 3rd Ave, Columbus",
-  operator: "Tesla",
-  capacity: 8,
-  power: "最高约 250 kW",
-  openingHours: "24/7",
-  website: "https://www.tesla.com/findus",
-  isTesla: true,
-  source: "osm",
-};
+const NETWORK_KINDS = new Set([
+  "tesla-supercharger",
+  "chargepoint",
+  "electrify-america",
+  "evgo",
+  "other",
+]);
 
-function readCache() {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStation(value: unknown): value is EvStation {
+  if (!isRecord(value)) return false;
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    typeof value.latitude === "number" &&
+    Number.isFinite(value.latitude) &&
+    typeof value.longitude === "number" &&
+    Number.isFinite(value.longitude) &&
+    typeof value.networkKind === "string" &&
+    NETWORK_KINDS.has(value.networkKind) &&
+    Array.isArray(value.connectors) &&
+    typeof value.availabilityIsRealtime === "boolean" &&
+    typeof value.status === "string" &&
+    Array.isArray(value.sources) &&
+    typeof value.isTesla === "boolean" &&
+    typeof value.source === "string"
+  );
+}
+
+function isStationsResponse(value: unknown): value is EvStationsResponse {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.stations) &&
+    value.stations.every(isStation) &&
+    typeof value.generatedAt === "string" &&
+    typeof value.isFallback === "boolean" &&
+    (value.warning === undefined || typeof value.warning === "string")
+  );
+}
+
+function readCache(): CachedStations | null {
   if (typeof window === "undefined") return null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "null") as
-      | CachedStations
-      | null;
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(CACHE_KEY) ?? "null",
+    );
     if (
-      !parsed ||
-      !Array.isArray(parsed.stations) ||
-      Date.now() - parsed.savedAt > CACHE_MAX_AGE
+      !isRecord(parsed) ||
+      typeof parsed.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > CACHE_MAX_AGE ||
+      !isStationsResponse(parsed.payload)
     ) {
       return null;
     }
-    return parsed.stations;
+    return { savedAt: parsed.savedAt, payload: parsed.payload };
   } catch {
     return null;
   }
 }
 
-function toStation(element: OverpassElement): EvStation | null {
-  const tags = element.tags ?? {};
-  const latitude = element.lat ?? element.center?.lat;
-  const longitude = element.lon ?? element.center?.lon;
-  if (typeof latitude !== "number" || typeof longitude !== "number") return null;
-
-  const operator = tags.operator ?? tags.brand ?? tags.network;
-  const isTesla = /tesla/i.test(
-    `${operator ?? ""} ${tags.name ?? ""} ${tags["socket:nacs"] ?? ""}`,
-  );
-  const street = [tags["addr:housenumber"], tags["addr:street"]]
-    .filter(Boolean)
-    .join(" ");
-  const address = [street, tags["addr:city"]].filter(Boolean).join(", ");
-  const power =
-    tags["socket:nacs:output"] ??
-    tags["socket:type2_combo:output"] ??
-    tags["socket:type2:output"] ??
-    tags.capacity;
-
+function stateFromPayload(
+  payload: EvStationsResponse,
+  error?: string,
+): EvStationsState {
   return {
-    id: `${element.type}-${element.id}`,
-    name: tags.name ?? `${operator ?? "公共"}充电站`,
-    latitude,
-    longitude,
-    address: address || undefined,
-    operator,
-    capacity: tags.capacity ? Number(tags.capacity) || undefined : undefined,
-    openingHours: tags.opening_hours,
-    power,
-    website: tags.website,
-    isTesla,
-    source: "osm",
+    stations: payload.stations,
+    loading: false,
+    error,
+    warning: payload.warning,
+    isFallback: payload.isFallback,
+    updatedAt: payload.sourceUpdatedAt ?? payload.generatedAt,
   };
 }
 
-export function useEvStations(enabled: boolean) {
-  const [stations, setStations] = useState<EvStation[]>(
-    () => readCache() ?? [fallbackTesla],
-  );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>();
+export function useEvStations() {
+  const [state, setState] = useState<EvStationsState>({
+    stations: [],
+    loading: false,
+    isFallback: false,
+  });
 
   useEffect(() => {
-    if (!enabled) return;
-    if (readCache()) return;
-
     const controller = new AbortController();
-    const query = `[out:json][timeout:15];nwr["amenity"="charging_station"](around:16000,${CAMPUS_CENTER.latitude},${CAMPUS_CENTER.longitude});out center tags;`;
-    const loadingFrame = window.requestAnimationFrame(() => setLoading(true));
+    const cached = readCache();
+    let latestFetchAt = cached?.savedAt ?? 0;
+    let cacheRestoreFrame: number | undefined;
+    let loadingFrame: number | undefined;
+    let inFlight: Promise<void> | undefined;
 
-    fetch(`${OVERPASS_ENDPOINT}?data=${encodeURIComponent(query)}`, {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`充电站数据请求失败 (${response.status})`);
-        return (await response.json()) as { elements?: OverpassElement[] };
-      })
-      .then((payload) => {
-        const next = (payload.elements ?? [])
-          .map(toStation)
-          .filter((station): station is EvStation => station !== null);
-        const useful = next.length ? next : [fallbackTesla];
-        setStations(useful);
-        setError(undefined);
-        try {
-          localStorage.setItem(
-            CACHE_KEY,
-            JSON.stringify({ stations: useful, savedAt: Date.now() }),
-          );
-        } catch {
-          // Keep the in-memory result when browser storage is unavailable.
-        }
-      })
-      .catch((reason: unknown) => {
+    if (cached) {
+      // Restore browser-only state after hydration so the server and first
+      // client render both start from the same markup.
+      cacheRestoreFrame = window.requestAnimationFrame(() => {
         if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "充电站数据暂不可用");
+          setState(stateFromPayload(cached.payload));
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
       });
+    }
+
+    const refresh = (showLoading = false) => {
+      if (inFlight) return inFlight;
+
+      if (showLoading) {
+        loadingFrame = window.requestAnimationFrame(() => {
+          setState((current) => ({
+            ...current,
+            loading: true,
+            error: undefined,
+          }));
+        });
+      }
+
+      inFlight = (async () => {
+        try {
+          const response = await fetch(EV_STATIONS_ENDPOINT, {
+            cache: "no-store",
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          });
+          const payload: unknown = await response.json();
+
+          if (!response.ok) {
+            throw new Error(`充电站数据请求失败 (${response.status})`);
+          }
+          if (!isStationsResponse(payload)) {
+            throw new Error("充电站数据格式异常");
+          }
+
+          latestFetchAt = Date.now();
+          if (cacheRestoreFrame !== undefined) {
+            window.cancelAnimationFrame(cacheRestoreFrame);
+            cacheRestoreFrame = undefined;
+          }
+          setState(stateFromPayload(payload));
+          try {
+            localStorage.setItem(
+              CACHE_KEY,
+              JSON.stringify({ payload, savedAt: latestFetchAt }),
+            );
+          } catch {
+            // Keep the in-memory result when browser storage is unavailable.
+          }
+        } catch (reason: unknown) {
+          if (!controller.signal.aborted) {
+            setState((current) => ({
+              ...current,
+              loading: false,
+              error:
+                reason instanceof Error ? reason.message : "充电站数据暂不可用",
+            }));
+          }
+        } finally {
+          if (loadingFrame !== undefined) {
+            window.cancelAnimationFrame(loadingFrame);
+            loadingFrame = undefined;
+          }
+          if (!controller.signal.aborted) {
+            setState((current) => ({ ...current, loading: false }));
+          }
+          inFlight = undefined;
+        }
+      })();
+
+      return inFlight;
+    };
+
+    if (!cached || Date.now() - cached.savedAt >= REFRESH_INTERVAL) {
+      void refresh(!cached);
+    }
+
+    // EV summary cards remain visible even when the map layer is hidden.
+    const refreshTimer = window.setInterval(
+      () => void refresh(),
+      REFRESH_INTERVAL,
+    );
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - latestFetchAt >= REFRESH_INTERVAL
+      ) {
+        void refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.cancelAnimationFrame(loadingFrame);
+      if (cacheRestoreFrame !== undefined) {
+        window.cancelAnimationFrame(cacheRestoreFrame);
+      }
+      if (loadingFrame !== undefined) window.cancelAnimationFrame(loadingFrame);
+      window.clearInterval(refreshTimer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       controller.abort();
     };
-  }, [enabled]);
+  }, []);
 
-  return { stations, loading, error };
+  return state;
 }

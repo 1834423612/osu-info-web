@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   const where = `Permit IN (${zones.map((zone) => `'${zone}'`).join(",")})`;
   const params = new URLSearchParams({
     where,
-    outFields: "Name,CPNAME,Permit,Usage,VisitorPark,Link",
+    outFields: "OBJECTID,Name,CPNAME,Permit,Usage,VisitorPark,Link",
     returnGeometry: "true",
     geometry: "-83.065,39.975,-82.985,40.035",
     geometryType: "esriGeometryEnvelope",

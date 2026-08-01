@@ -70,13 +70,15 @@ export function TransitControl({
                   title={route.name}
                 >
                   <i />
-                  {route.code}
+                  <b>{route.code}</b>
+                  <span>{route.name}</span>
                 </button>
               );
             })}
           </div>
           <p>
-            车辆每 15 秒更新；停运时显示 0 辆，不代表数据故障。
+            已选择 {activeRoutes.length} / {routes.length} 条完整线路；车辆每
+            15 秒更新，停运时显示 0 辆。
             <a
               href="https://ttm.osu.edu/cabs"
               target="_blank"

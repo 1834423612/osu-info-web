@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { EvControl } from "@/components/ev-control";
-import { MapPanel } from "@/components/map/map-panel";
+import { CampusParkingMap } from "@/components/map/campus-parking-map";
 import { ParkingCard } from "@/components/parking-card";
 import { ParkingDetailSheet } from "@/components/parking-detail-sheet";
 import {
@@ -79,7 +79,7 @@ export function ParkingDashboard() {
   const [now, setNow] = useState(() => Date.now());
 
   const transit = useTransit(preferences.mapTransitVisible);
-  const ev = useEvStations(preferences.evMode);
+  const ev = useEvStations();
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -242,9 +242,8 @@ export function ParkingDashboard() {
   }, [permitSummary, preferences.permitCode, selectedLocation]);
 
   const nearestFastCharger = useMemo(() => {
-    if (!selectedLocation) return ev.stations.find((station) => station.isTesla);
-    return ev.stations
-      .filter((station) => station.isTesla)
+    if (!selectedLocation) return ev.stations.at(0);
+    return [...ev.stations]
       .sort(
         (a, b) =>
           haversineMeters(selectedLocation, a) -
@@ -285,6 +284,10 @@ export function ParkingDashboard() {
     },
     [update],
   );
+
+  const handlePermitClose = useCallback(() => {
+    setPermitOpen(false);
+  }, []);
 
   return (
     <div className="app-frame">
@@ -465,12 +468,25 @@ export function ParkingDashboard() {
         </section>
 
         <section className="workspace-grid">
-          <div
-            className={cn(
-              "parking-panel",
-              mobileView === "map" && "mobile-hidden",
-            )}
-          >
+          {selectedLocation ? (
+            <ParkingDetailSheet
+              location={selectedLocation}
+              permitName={permitLabel}
+              permitMessage={selectedPermitMessage}
+              nearestFastCharger={nearestFastCharger}
+              escapeEnabled={!permitOpen}
+              onClose={() => setSelectedId(undefined)}
+              onToggleFavorite={() =>
+                toggleFavorite(selectedLocation.GarageId)
+              }
+            />
+          ) : (
+            <div
+              className={cn(
+                "parking-panel",
+                mobileView === "map" && "mobile-hidden",
+              )}
+            >
             <div className="parking-panel__header">
               <div>
                 <span className="eyebrow">PARKING STATUS</span>
@@ -678,7 +694,8 @@ export function ParkingDashboard() {
                 <EmptyState onReset={resetFilters} />
               )}
             </div>
-          </div>
+            </div>
+          )}
 
           <div
             className={cn(
@@ -715,7 +732,7 @@ export function ParkingDashboard() {
             </div>
 
             <div className="map-canvas">
-              <MapPanel
+              <CampusParkingMap
                 locations={locations}
                 selectedId={selectedId}
                 onSelect={selectLocation}
@@ -724,8 +741,14 @@ export function ParkingDashboard() {
                 showTransit={preferences.mapTransitVisible}
                 evStations={ev.stations}
                 showEv={preferences.evMode}
-                permitAreas={permitAreas.data}
-                showPermitAreas={showPermitAreas}
+                permitLayer={{
+                  areas: permitAreas.data,
+                  visible: showPermitAreas,
+                  permitCode: permitSummary?.permit.officialCode,
+                  zones: permitZones,
+                  loading: permitAreas.loading,
+                  error: permitAreas.error,
+                }}
               />
 
               <div className="map-controls map-controls--top">
@@ -868,13 +891,18 @@ export function ParkingDashboard() {
                     ).length
                   }
                 </strong>
-                <span>个实时停车点有 Level 2</span>
+                <span>个停车点标注有 Level 2</span>
               </div>
               <div>
                 <strong>
-                  {ev.stations.filter((station) => station.isTesla).length}
+                  {
+                    ev.stations.filter(
+                      (station) =>
+                        station.networkKind === "tesla-supercharger",
+                    ).length
+                  }
                 </strong>
-                <span>个周边 Tesla 站点</span>
+                <span>个周边 Tesla 超充站</span>
               </div>
             </div>
             {nearestFastCharger && (
@@ -888,22 +916,47 @@ export function ParkingDashboard() {
                 rel="noreferrer"
               >
                 <span>
-                  <Icon icon="simple-icons:tesla" />
+                  <Icon
+                    icon={
+                      nearestFastCharger.networkKind === "tesla-supercharger"
+                        ? "simple-icons:tesla"
+                        : "solar:bolt-circle-bold-duotone"
+                    }
+                  />
                 </span>
                 <span>
                   <small>附近快充</small>
                   <strong>{nearestFastCharger.name}</strong>
                   <em>
-                    {nearestFastCharger.power ??
-                      nearestFastCharger.address ??
-                      "查看位置"}
+                    {[
+                      nearestFastCharger.capacity
+                        ? `${nearestFastCharger.capacity} 个快充端口`
+                        : undefined,
+                      nearestFastCharger.power,
+                      nearestFastCharger.connectors
+                        .map((connector) =>
+                          connector.type === "other"
+                            ? "接口未公开"
+                            : connector.type,
+                        )
+                        .join(" / "),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "查看位置"}
                   </em>
                 </span>
                 <Icon icon="solar:arrow-right-up-linear" />
               </a>
             )}
             <p className="source-note">
-              充电站来自 OpenStreetMap，24 小时缓存；不代表充电枪实时空闲。
+              {ev.isFallback
+                ? (ev.warning ??
+                  "NLR/AFDC 暂不可用，当前显示经官方页面核对的非实时备用站点。")
+                : ev.warning
+                  ? ev.warning
+                  : ev.error
+                    ? `充电站刷新失败：${ev.error}。当前内容可能来自浏览器缓存。`
+                    : "站点来自美国能源部 AFDC；运营状态不等于实时空闲端口，价格和占用以运营商应用为准。"}
             </p>
           </article>
 
@@ -1077,23 +1130,13 @@ export function ParkingDashboard() {
         </button>
       </nav>
 
-      <ParkingDetailSheet
-        location={selectedLocation}
-        permitName={permitLabel}
-        permitMessage={selectedPermitMessage}
-        nearestFastCharger={nearestFastCharger}
-        onClose={() => setSelectedId(undefined)}
-        onToggleFavorite={() => {
-          if (selectedLocation) toggleFavorite(selectedLocation.GarageId);
-        }}
-      />
-
       <PermitSettings
         key={`${permitOpen ? "open" : "closed"}-${preferences.permitCode}`}
         open={permitOpen}
         selectedCode={preferences.permitCode}
+        now={now}
         onSave={handlePermitSave}
-        onClose={() => setPermitOpen(false)}
+        onClose={handlePermitClose}
       />
     </div>
   );

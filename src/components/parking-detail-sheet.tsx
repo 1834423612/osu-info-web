@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { OccupancyRing } from "@/components/ui/occupancy-ring";
 import { CABS_ROUTE_LABELS } from "@/data/parking-locations";
@@ -39,6 +39,7 @@ export function ParkingDetailSheet({
   permitName,
   permitMessage,
   nearestFastCharger,
+  escapeEnabled = true,
   onClose,
   onToggleFavorite,
 }: {
@@ -46,24 +47,92 @@ export function ParkingDetailSheet({
   permitName: string;
   permitMessage: string;
   nearestFastCharger?: EvStation;
+  escapeEnabled?: boolean;
   onClose: () => void;
   onToggleFavorite: () => void;
 }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const detailSheetRef = useRef<HTMLElement>(null);
+  const [isModal, setIsModal] = useState(false);
+  const locationId = location?.GarageId;
+
   useEffect(() => {
-    if (!location) return;
+    const media = window.matchMedia("(max-width: 820px)");
+    const syncMode = () => setIsModal(media.matches);
+    const frame = window.requestAnimationFrame(syncMode);
+    media.addEventListener("change", syncMode);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      media.removeEventListener("change", syncMode);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!location || !escapeEnabled) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !isModal || !detailSheetRef.current) return;
+      const focusable = Array.from(
+        detailSheetRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable.at(-1) ?? first;
+      if (!detailSheetRef.current.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [location, onClose]);
+  }, [escapeEnabled, isModal, location, onClose]);
+
+  useEffect(() => {
+    if (locationId === undefined) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    const frame = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus({ preventScroll: true });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.requestAnimationFrame(() => {
+        if (previousFocus?.isConnected) {
+          previousFocus.focus({ preventScroll: true });
+          return;
+        }
+        const fallbacks = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            ".parking-card__main, .map-workspace [role='region'], .permit-quick-button",
+          ),
+        );
+        fallbacks
+          .find((element) => element.getClientRects().length > 0)
+          ?.focus({ preventScroll: true });
+      });
+    };
+  }, [locationId]);
 
   if (!location) return null;
 
   const access = accessText(location.GarageType);
 
   return (
-    <div className="detail-layer">
+    <div className="detail-layer detail-layer--workspace">
       <button
         type="button"
         className="detail-backdrop"
@@ -71,9 +140,10 @@ export function ParkingDetailSheet({
         aria-label="关闭停车详情"
       />
       <aside
+        ref={detailSheetRef}
         className="detail-sheet"
         role="dialog"
-        aria-modal="true"
+        aria-modal={isModal || undefined}
         aria-labelledby="parking-detail-title"
       >
         <div className="detail-sheet__handle" aria-hidden="true" />
@@ -101,6 +171,7 @@ export function ParkingDetailSheet({
                 />
               </button>
               <button
+                ref={closeButtonRef}
                 type="button"
                 className="circle-button circle-button--glass"
                 onClick={onClose}
@@ -186,13 +257,32 @@ export function ParkingDetailSheet({
                 )}
                 {nearestFastCharger && (
                   <div>
-                    <Icon icon="simple-icons:tesla" />
+                    <Icon
+                      icon={
+                        nearestFastCharger.networkKind ===
+                        "tesla-supercharger"
+                          ? "simple-icons:tesla"
+                          : "solar:bolt-circle-bold-duotone"
+                      }
+                    />
                     <span>
                       <strong>{nearestFastCharger.name}</strong>
                       <small>
-                        {nearestFastCharger.power ??
-                          nearestFastCharger.address ??
-                          "附近直流快充"}
+                        {[
+                          nearestFastCharger.capacity
+                            ? `${nearestFastCharger.capacity} 个快充端口`
+                            : undefined,
+                          nearestFastCharger.power,
+                          nearestFastCharger.connectors
+                            .map((connector) =>
+                              connector.type === "other"
+                                ? "接口未公开"
+                                : connector.type,
+                            )
+                            .join(" / "),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "附近直流快充"}
                       </small>
                     </span>
                   </div>
