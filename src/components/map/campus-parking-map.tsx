@@ -6,6 +6,10 @@ import { useCallback, useMemo, useState } from "react";
 import type { FeatureCollection } from "geojson";
 
 import { getPermitZoneMeta } from "@/lib/permit-map";
+import {
+  getParkingMapGroups,
+  type ParkingMapGroupId,
+} from "@/lib/parking-map-groups";
 import { cn } from "@/lib/utils";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
@@ -13,7 +17,6 @@ import type { TransitFeed } from "@/types/transit";
 import type {
   CampusMapProps,
   CampusMapVariant,
-  ParkingMapGroupId,
 } from "./campus-map";
 
 const CampusMap = dynamic<CampusMapProps>(() => import("./campus-map"), {
@@ -78,6 +81,10 @@ export function CampusParkingMap({
   const allExpanded =
     zones.length > 0 && zones.every((zone) => expandedSet.has(zone));
   const primaryMeta = getPermitZoneMeta(zones[0]);
+  const parkingGroups = useMemo(
+    () => getParkingMapGroups(mapProps.locations ?? []),
+    [mapProps.locations],
+  );
 
   const toggleZone = useCallback((zone: string) => {
     setExpansion((current) => {
@@ -105,15 +112,97 @@ export function CampusParkingMap({
         permitAreas={permitLayer.areas}
         showPermitAreas={permitLayer.visible}
         expandedPermitZones={expandedZones}
-        onTogglePermitZone={toggleZone}
         expandedParkingGroup={expandedParkingGroup}
-        onToggleParkingGroup={(group) =>
-          setExpandedParkingGroup((current) =>
-            current === group ? undefined : group,
-          )
-        }
         className="h-full w-full"
       />
+
+      {variant === "default" && parkingGroups.length > 0 && (
+        <aside className="parking-category-dock" aria-label="地图停车分类">
+          <div className="parking-category-dock__heading">
+            <span>
+              <Icon icon="solar:layers-bold-duotone" />
+            </span>
+            <div>
+              <small>地图停车分类</small>
+              <strong>选择后显示具体地点</strong>
+            </div>
+          </div>
+          <div className="parking-category-dock__tickets">
+            {parkingGroups.map((group) => {
+              const expanded = expandedParkingGroup === group.id;
+              return (
+                <button
+                  type="button"
+                  key={group.id}
+                  className={cn(
+                    "parking-category-ticket",
+                    expanded && "is-active",
+                  )}
+                  style={
+                    {
+                      "--parking-category-color": group.color,
+                    } as React.CSSProperties
+                  }
+                  onClick={() =>
+                    setExpandedParkingGroup((current) =>
+                      current === group.id ? undefined : group.id,
+                    )
+                  }
+                  aria-pressed={expanded}
+                >
+                  <span className="parking-category-ticket__code">
+                    <Icon icon="solar:ticket-bold-duotone" />
+                    <b>{group.code}</b>
+                  </span>
+                  <span className="parking-category-ticket__copy">
+                    <strong>{group.nameZh}</strong>
+                    <small>
+                      {group.count} 处 · {expanded ? "已展开" : "点击细分"}
+                    </small>
+                  </span>
+                  <Icon
+                    className="parking-category-ticket__chevron"
+                    icon={
+                      expanded
+                        ? "solar:alt-arrow-down-linear"
+                        : "solar:alt-arrow-right-linear"
+                    }
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+      )}
+
+      {variant === "permit-preview" && permitLayer.visible && zones.length > 0 && (
+        <aside className="permit-zone-dock" aria-label="停车证区域分类">
+          {zones.map((zone) => {
+            const meta = getPermitZoneMeta(zone);
+            if (!meta) return null;
+            const expanded = expandedSet.has(zone);
+            return (
+              <button
+                type="button"
+                key={zone}
+                className={cn("permit-zone-dock__ticket", expanded && "is-active")}
+                style={
+                  { "--permit-zone-color": meta.color } as React.CSSProperties
+                }
+                onClick={() => toggleZone(zone)}
+                aria-pressed={expanded}
+              >
+                <b>{meta.code}</b>
+                <span>
+                  <strong>{meta.shortNameZh}</strong>
+                  <small>{expanded ? "已显示具体地点" : "点击显示具体地点"}</small>
+                </span>
+                <Icon icon="solar:alt-arrow-right-linear" />
+              </button>
+            );
+          })}
+        </aside>
+      )}
 
       {permitLayer.visible && permitLayer.permitCode && zones.length > 0 && (
         <div

@@ -14,6 +14,7 @@ import {
 } from "@/components/permit-settings";
 import { TimeDisplay } from "@/components/time-display";
 import { TransitControl } from "@/components/transit-control";
+import { TransitRoutePanel } from "@/components/transit-route-panel";
 import {
   estimateVisitorParkingCost,
   getCurrentAccessSummary,
@@ -52,6 +53,7 @@ const initialFilters: ParkingFilters = {
 
 type SortMode = "recommended" | "available" | "quiet" | "name";
 type MobileView = "list" | "map";
+type SidebarTab = "parking" | "transit";
 
 function feedLabel(state: ReturnType<typeof useParkingStatus>["state"]) {
   if (state === "live") return "实时数据";
@@ -78,6 +80,9 @@ export function ParkingDashboard() {
   const [permitOpen, setPermitOpen] = useState(false);
   const [permitAreaLayerEnabled, setPermitAreaLayerEnabled] = useState(true);
   const [mobileView, setMobileView] = useState<MobileView>("list");
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("parking");
+  const [selectedTransitRoute, setSelectedTransitRoute] = useState<string>();
+  const [transitPanelExpanded, setTransitPanelExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const transit = useTransit(preferences.mapTransitVisible);
@@ -500,6 +505,36 @@ export function ParkingDashboard() {
                 mobileView === "map" && "mobile-hidden",
               )}
             >
+            <div className="sidebar-tabs" role="tablist" aria-label="信息列表">
+              <button
+                type="button"
+                role="tab"
+                className={sidebarTab === "parking" ? "is-active" : ""}
+                aria-selected={sidebarTab === "parking"}
+                onClick={() => setSidebarTab("parking")}
+              >
+                <Icon icon="solar:garage-bold-duotone" />
+                <span>
+                  <strong>全部停车场</strong>
+                  <small>{locations.length} 个地点</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={sidebarTab === "transit" ? "is-active" : ""}
+                aria-selected={sidebarTab === "transit"}
+                onClick={() => setSidebarTab("transit")}
+              >
+                <Icon icon="solar:bus-bold-duotone" />
+                <span>
+                  <strong>CABS 公交</strong>
+                  <small>{transit.routeOverviews.length || 6} 条线路</small>
+                </span>
+              </button>
+            </div>
+            {sidebarTab === "parking" ? (
+              <>
             <div className="parking-panel__header">
               <div>
                 <span className="eyebrow">PARKING STATUS</span>
@@ -707,6 +742,22 @@ export function ParkingDashboard() {
                 <EmptyState onReset={resetFilters} />
               )}
             </div>
+              </>
+            ) : (
+              <TransitRoutePanel
+                routes={transit.routeOverviews}
+                activeRoutes={transit.activeRoutes}
+                selectedRoute={selectedTransitRoute}
+                loading={transit.loading}
+                error={transit.feed.error}
+                onSelectRoute={(code) =>
+                  setSelectedTransitRoute((current) =>
+                    current === code ? undefined : code,
+                  )
+                }
+                onToggleRoute={transit.toggleRoute}
+              />
+            )}
             </div>
           )}
 
@@ -823,10 +874,14 @@ export function ParkingDashboard() {
                   routes={transit.feed.routes}
                   activeRoutes={transit.activeRoutes}
                   vehicles={transit.feed.vehicles.length}
-                  enabled={preferences.mapTransitVisible}
+                  expanded={transitPanelExpanded}
+                  visible={preferences.mapTransitVisible}
                   loading={transit.loading}
                   error={transit.feed.error}
-                  onToggleEnabled={() =>
+                  onToggleExpanded={() =>
+                    setTransitPanelExpanded((current) => !current)
+                  }
+                  onToggleVisible={() =>
                     update({
                       mapTransitVisible: !preferences.mapTransitVisible,
                     })

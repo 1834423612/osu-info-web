@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { decodePolyline } from "@/lib/polyline";
+import { buildTransitRouteOverviews } from "@/lib/transit-map";
 import type {
   TransitFeed,
   TransitRoute,
@@ -13,6 +14,7 @@ import type {
 const POLL_INTERVAL = 15_000;
 const DETAIL_REFRESH_INTERVAL = 10 * 60_000;
 const DETAIL_RETRY_DELAYS = [4_000, 12_000] as const;
+const CORE_CABS_ROUTE_CODES = new Set(["BE", "CC", "CLS", "ER", "MC", "NWC"]);
 
 type RouteResponse = {
   routes?: TransitRoute[];
@@ -47,7 +49,10 @@ function hasRenderablePolyline(encodedPolyline: unknown) {
   }
 }
 
-export function useTransit(enabled: boolean) {
+export function useTransit(mapVisible: boolean) {
+  // Data remains live for the route-list tab; this flag controls map layers in
+  // the caller and intentionally no longer disables the feed itself.
+  void mapVisible;
   const [routes, setRoutes] = useState<TransitRoute[]>([]);
   const [details, setDetails] = useState<Record<string, TransitRouteDetail>>({});
   const [vehicles, setVehicles] = useState<TransitVehicle[]>([]);
@@ -59,13 +64,6 @@ export function useTransit(enabled: boolean) {
   const detailsRef = useRef<Record<string, TransitRouteDetail>>({});
 
   useEffect(() => {
-    if (!enabled) {
-      const clearTimer = window.setTimeout(
-        () => setRouteListError(undefined),
-        0,
-      );
-      return () => window.clearTimeout(clearTimer);
-    }
     const controller = new AbortController();
 
     fetch("/api/transit/routes", {
@@ -77,7 +75,15 @@ export function useTransit(enabled: boolean) {
         return (await response.json()) as RouteResponse;
       })
       .then((payload) => {
-        const nextRoutes = Array.isArray(payload.routes) ? payload.routes : [];
+        // The shared OSU feed also publishes medical-center shuttle services
+        // such as WMC. This browser's CABS tab intentionally tracks the six
+        // core campus routes requested by the user.
+        const nextRoutes = Array.isArray(payload.routes)
+          ? payload.routes.filter((route) =>
+              typeof route?.code === "string" &&
+              CORE_CABS_ROUTE_CODES.has(route.code.trim().toUpperCase()),
+            )
+          : [];
         setRoutes(nextRoutes);
         setActiveRoutes((current) =>
           current.length
@@ -95,15 +101,20 @@ export function useTransit(enabled: boolean) {
       });
 
     return () => controller.abort();
-  }, [enabled]);
+  }, []);
 
-  const activeKey = useMemo(
-    () => [...activeRoutes].sort().join(","),
-    [activeRoutes],
+  const catalogRoutes = useMemo(
+    () =>
+      routes
+        .map((route) => route.code.trim().toUpperCase())
+        .filter(Boolean)
+        .sort(),
+    [routes],
   );
+  const catalogKey = useMemo(() => catalogRoutes.join(","), [catalogRoutes]);
 
   useEffect(() => {
-    if (!enabled || !activeKey) {
+    if (!catalogKey) {
       const clearTimer = window.setTimeout(
         () => setRouteDetailError(undefined),
         0,
@@ -116,7 +127,7 @@ export function useTransit(enabled: boolean) {
       () => setRouteDetailError(undefined),
       0,
     );
-    const missing = activeRoutes.filter((code) => !detailsRef.current[code]);
+    const missing = catalogRoutes.filter((code) => !detailsRef.current[code]);
 
     const loadDetails = async (codes: string[], attempt: number) => {
       const results = await Promise.allSettled(
@@ -189,7 +200,7 @@ export function useTransit(enabled: boolean) {
     if (missing.length) void loadDetails(missing, 0);
     const refreshInterval = window.setInterval(() => {
       if (document.visibilityState === "visible") {
-        void loadDetails(activeRoutes, 0);
+        void loadDetails(catalogRoutes, 0);
       }
     }, DETAIL_REFRESH_INTERVAL);
 
@@ -199,10 +210,10 @@ export function useTransit(enabled: boolean) {
       window.clearInterval(refreshInterval);
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [activeKey, activeRoutes, enabled]);
+  }, [catalogKey, catalogRoutes]);
 
   useEffect(() => {
-    if (!enabled || !activeKey) {
+    if (!catalogKey) {
       const clearTimer = window.setTimeout(() => {
         setVehicles([]);
         setLastUpdated(undefined);
@@ -225,7 +236,7 @@ export function useTransit(enabled: boolean) {
 
       try {
         const response = await fetch(
-          `/api/transit/vehicles?routes=${encodeURIComponent(activeKey)}`,
+          `/api/transit/vehicles?routes=${encodeURIComponent(catalogKey)}`,
           { cache: "no-store", signal: controller.signal },
         );
         if (!response.ok) throw new Error(`车辆请求失败 (${response.status})`);
@@ -255,7 +266,7 @@ export function useTransit(enabled: boolean) {
       window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
     };
-  }, [activeKey, enabled]);
+  }, [catalogKey]);
 
   const toggleRoute = useCallback((code: string) => {
     setActiveRoutes((current) =>
@@ -272,11 +283,16 @@ export function useTransit(enabled: boolean) {
     lastUpdated,
     error: routeListError ?? routeDetailError ?? vehicleError,
   };
+  const routeOverviews = useMemo(
+    () => buildTransitRouteOverviews({ routes, details, vehicles }),
+    [details, routes, vehicles],
+  );
 
   return {
     feed,
+    routeOverviews,
     activeRoutes,
     toggleRoute,
-    loading: enabled && routes.length === 0 && !routeListError,
+    loading: routes.length === 0 && !routeListError,
   };
 }

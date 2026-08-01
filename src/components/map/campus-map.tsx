@@ -1,38 +1,70 @@
 "use client";
 
+import { Icon } from "@iconify/react";
 import { useEffect, useMemo, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { FeatureCollection, Geometry } from "geojson";
 import type {
+  FillLayerSpecification,
+  LineLayerSpecification,
   Map as MapLibreMap,
-  Marker,
   StyleSpecification,
 } from "maplibre-gl";
 
 import { getPermitZoneMeta } from "@/lib/permit-map";
 import {
+  Map as MapCNMap,
+  MapControls,
+  MapGeoJSON,
+  MapMarker,
+  MarkerContent,
+  MarkerPopup,
+  useMap,
+} from "@/components/ui/map";
+import {
+  buildParkingGroupRegion,
+  parkingMapGroupIdForLocation,
+  type ParkingMapGroupId,
+} from "@/lib/parking-map-groups";
+import {
   buildTransitRouteFeatureCollection,
   deriveTransitVehicleMapInfo,
-  transitDirectionLabel,
   type TransitVehicleMapInfo,
 } from "@/lib/transit-map";
 import { occupancyLevel } from "@/lib/utils";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
-import type {
-  TransitFeed,
-  TransitRoute,
-} from "@/types/transit";
+import type { TransitFeed } from "@/types/transit";
 
 const CAMPUS_CENTER: [number, number] = [-83.0226, 40.0035];
-const PERMIT_SOURCE_ID = "campus-permit-areas";
-const PERMIT_FILL_LAYER_ID = "campus-permit-areas-fill";
-const PERMIT_OUTLINE_LAYER_ID = "campus-permit-areas-outline";
 const CABS_SOURCE_ID = "campus-cabs-routes";
 const CABS_HALO_LAYER_ID = "campus-cabs-routes-halo";
 const CABS_LINE_LAYER_ID = "campus-cabs-routes-line";
 const CABS_DIRECTION_LAYER_ID = "campus-cabs-routes-direction";
 const CABS_DIRECTION_IMAGE_ID = "campus-cabs-direction-arrow";
+const PARKING_GROUP_FILL_PAINT: FillLayerSpecification["paint"] = {
+  "fill-color": ["get", "groupColor"],
+  "fill-opacity": 0.1,
+};
+const PARKING_GROUP_LINE_PAINT: LineLayerSpecification["paint"] = {
+  "line-color": ["get", "groupColor"],
+  "line-opacity": 0.85,
+  "line-width": 2.2,
+  "line-dasharray": [2, 1.4],
+};
+const PERMIT_AREA_FILL_PAINT: FillLayerSpecification["paint"] = {
+  "fill-color": ["get", "zoneColor"],
+  "fill-opacity": ["get", "fillOpacity"],
+};
+const PERMIT_AREA_LINE_PAINT: LineLayerSpecification["paint"] = {
+  "line-color": ["get", "zoneOutline"],
+  "line-opacity": 0.86,
+  "line-width": 1.4,
+};
+const PERMIT_AREA_PREVIEW_LINE_PAINT: LineLayerSpecification["paint"] = {
+  ...PERMIT_AREA_LINE_PAINT,
+  "line-width": 2,
+};
 
 const EMPTY_TRANSIT_FEED: TransitFeed = {
   routes: [],
@@ -41,7 +73,7 @@ const EMPTY_TRANSIT_FEED: TransitFeed = {
 };
 
 export type CampusMapVariant = "default" | "permit-preview";
-export type ParkingMapGroupId = "garage" | "west-surface" | "buckeye";
+export type { ParkingMapGroupId } from "@/lib/parking-map-groups";
 
 export type CampusMapProps = {
   variant?: CampusMapVariant;
@@ -56,9 +88,7 @@ export type CampusMapProps = {
   permitAreas: FeatureCollection;
   showPermitAreas?: boolean;
   expandedPermitZones?: string[];
-  onTogglePermitZone?: (zone: string) => void;
   expandedParkingGroup?: ParkingMapGroupId;
-  onToggleParkingGroup?: (group: ParkingMapGroupId) => void;
   className?: string;
 };
 
@@ -100,151 +130,6 @@ function getPermitAreaBounds(areas: FeatureCollection) {
     extendBoundsWithGeometry(bounds, feature.geometry),
   );
   return bounds.isEmpty() ? undefined : bounds;
-}
-
-function getPermitZoneRepresentatives(areas: FeatureCollection) {
-  const grouped = new Map<
-    string,
-    Array<{ coordinates: [number, number]; distance?: number }>
-  >();
-
-  areas.features.forEach((feature) => {
-    const code =
-      typeof feature.properties?.Permit === "string"
-        ? feature.properties.Permit.toUpperCase()
-        : "";
-    if (!getPermitZoneMeta(code)) return;
-
-    const bounds = new maplibregl.LngLatBounds();
-    extendBoundsWithGeometry(bounds, feature.geometry);
-    if (bounds.isEmpty()) return;
-    const center = bounds.getCenter();
-    const candidates = grouped.get(code) ?? [];
-    candidates.push({ coordinates: [center.lng, center.lat] });
-    grouped.set(code, candidates);
-  });
-
-  return Array.from(grouped.entries()).flatMap(([code, candidates]) => {
-    const meta = getPermitZoneMeta(code);
-    if (!meta || candidates.length === 0) return [];
-    const mean = candidates.reduce(
-      (total, candidate) => [
-        total[0] + candidate.coordinates[0] / candidates.length,
-        total[1] + candidate.coordinates[1] / candidates.length,
-      ],
-      [0, 0],
-    );
-    const representative = candidates
-      .map((candidate) => ({
-        ...candidate,
-        distance:
-          (candidate.coordinates[0] - mean[0]) ** 2 +
-          (candidate.coordinates[1] - mean[1]) ** 2,
-      }))
-      .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0))[0];
-
-    return [
-      {
-        meta,
-        coordinates: representative.coordinates,
-        areaCount: candidates.length,
-      },
-    ];
-  });
-}
-
-function permitZoneMarkerElement(
-  code: string,
-  shortNameZh: string,
-  color: string,
-  areaCount: number,
-  expanded: boolean,
-  onToggle?: (zone: string) => void,
-  categoryLabel = "停车证区域",
-) {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = `permit-ticket-map-marker${expanded ? " is-expanded" : ""}`;
-  element.style.setProperty("--permit-zone-color", color);
-  element.setAttribute(
-    "aria-label",
-    `${code} ${categoryLabel}，${shortNameZh}，${areaCount} 处，${expanded ? "收起" : "展开"}具体位置`,
-  );
-  element.setAttribute("aria-pressed", String(expanded));
-  element.innerHTML = `
-    <span class="permit-ticket-map-marker__code">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5V9a3 3 0 0 0 0 6v3.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5V15a3 3 0 0 0 0-6V5.5Z"/></svg>
-      <b>${code}</b>
-    </span>
-    <span class="permit-ticket-map-marker__name">
-      <b>${shortNameZh}</b>
-      <small>${areaCount} 处 · ${expanded ? "已展开" : "点按细分"}</small>
-    </span>
-    <svg class="permit-ticket-map-marker__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
-  `;
-  element.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onToggle?.(code);
-  });
-  return element;
-}
-
-type ParkingMapGroup = {
-  id: ParkingMapGroupId;
-  code: string;
-  nameZh: string;
-  color: string;
-  coordinates: [number, number];
-  count: number;
-};
-
-function parkingGroupForLocation(location: ParkingLocation): ParkingMapGroupId {
-  if (location.kind === "garage") return "garage";
-  return location.GarageId === 3005 ? "buckeye" : "west-surface";
-}
-
-function getParkingMapGroups(locations: ParkingLocation[]): ParkingMapGroup[] {
-  const definitions: Readonly<
-    Record<
-      ParkingMapGroupId,
-      Pick<ParkingMapGroup, "code" | "nameZh" | "color">
-    >
-  > = {
-    garage: { code: "GAR", nameZh: "实时车库", color: "#ba0c2f" },
-    "west-surface": {
-      code: "WEST",
-      nameZh: "西校区地面",
-      color: "#0891b2",
-    },
-    buckeye: { code: "CX", nameZh: "Buckeye Lot", color: "#7c3aed" },
-  };
-
-  return (Object.keys(definitions) as ParkingMapGroupId[]).flatMap((id) => {
-    const members = locations.filter(
-      (location) => parkingGroupForLocation(location) === id,
-    );
-    if (members.length === 0) return [];
-    const mean: [number, number] = members.reduce(
-      (total, location) => [
-        total[0] + location.longitude / members.length,
-        total[1] + location.latitude / members.length,
-      ],
-      [0, 0],
-    );
-    const representative = [...members].sort(
-      (a, b) =>
-        (a.longitude - mean[0]) ** 2 + (a.latitude - mean[1]) ** 2 -
-        ((b.longitude - mean[0]) ** 2 + (b.latitude - mean[1]) ** 2),
-    )[0];
-    return [
-      {
-        id,
-        ...definitions[id],
-        coordinates: [representative.longitude, representative.latitude],
-        count: members.length,
-      },
-    ];
-  });
 }
 
 type PermitLotRepresentative = {
@@ -328,61 +213,24 @@ function getPermitLotRepresentatives(
   });
 }
 
-function permitLotMarkerElement(lot: PermitLotRepresentative, color: string) {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = "permit-lot-map-marker";
-  element.style.setProperty("--permit-zone-color", color);
-  element.setAttribute(
-    "aria-label",
-    `${lot.name}，${lot.code} 停车证区域`,
+function PermitLotPopup({ lot }: { lot: PermitLotRepresentative }) {
+  const sourceUrl = safeHttpsUrl(lot.link, "https://osu.campusparc.com");
+
+  return (
+    <div className="map-info-popup map-info-popup--permit">
+      <small>{lot.code} · 具体停车区域</small>
+      <strong>{lot.name}</strong>
+      {(lot.usage || lot.visitorParking) && (
+        <p>{[lot.usage, lot.visitorParking].filter(Boolean).join(" · ")}</p>
+      )}
+      {lot.areaCount > 1 && <span>同名区域共 {lot.areaCount} 处</span>}
+      {sourceUrl && (
+        <a href={sourceUrl} target="_blank" rel="noreferrer">
+          查看官方说明 ↗
+        </a>
+      )}
+    </div>
   );
-
-  const code = document.createElement("b");
-  code.textContent = lot.code;
-  const name = document.createElement("span");
-  name.textContent = lot.name;
-  element.append(code, name);
-  return element;
-}
-
-function permitLotPopupElement(lot: PermitLotRepresentative) {
-  const content = document.createElement("div");
-  content.className = "map-info-popup map-info-popup--permit";
-  const eyebrow = document.createElement("small");
-  eyebrow.textContent = `${lot.code} · 具体停车区域`;
-  const title = document.createElement("strong");
-  title.textContent = lot.name;
-  content.append(eyebrow, title);
-
-  if (lot.usage || lot.visitorParking) {
-    const detail = document.createElement("p");
-    detail.textContent = [lot.usage, lot.visitorParking]
-      .filter(Boolean)
-      .join(" · ");
-    content.append(detail);
-  }
-  if (lot.areaCount > 1) {
-    const count = document.createElement("span");
-    count.textContent = `同名区域共 ${lot.areaCount} 处`;
-    content.append(count);
-  }
-  if (lot.link) {
-    try {
-      const url = new URL(lot.link, "https://osu.campusparc.com");
-      if (url.protocol === "https:") {
-        const link = document.createElement("a");
-        link.href = url.toString();
-        link.target = "_blank";
-        link.rel = "noreferrer";
-        link.textContent = "查看官方说明 ↗";
-        content.append(link);
-      }
-    } catch {
-      // Ignore malformed GIS links instead of exposing them in the popup.
-    }
-  }
-  return content;
 }
 
 const baseStyle: StyleSpecification = {
@@ -452,7 +300,13 @@ function createDirectionArrowImage(): ImageData {
   return context.getImageData(0, 0, 32, 32);
 }
 
-function parkingMarkerElement(location: ParkingLocation, selected: boolean) {
+function ParkingMarker({
+  location,
+  selected,
+}: {
+  location: ParkingLocation;
+  selected: boolean;
+}) {
   const level = occupancyLevel(location.UsePercentage);
   const visual =
     location.kind === "surface"
@@ -491,223 +345,153 @@ function parkingMarkerElement(location: ParkingLocation, selected: boolean) {
               background: "#ba0c2f",
               accessLabel: "综合实时车库，具体权限以入口提示为准",
             };
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = `parking-map-marker occupancy-${level}${selected ? " is-selected" : ""}${location.Closed ? " is-closed" : ""}`;
-  element.style.setProperty("--parking-marker-color", visual.color);
-  element.style.setProperty("--parking-marker-background", visual.background);
-  element.setAttribute(
-    "aria-label",
-    `${location.GarageName}，${visual.accessLabel}，${location.available} 个估算空位`,
+  return (
+    <button
+      type="button"
+      className={`parking-map-marker occupancy-${level}${selected ? " is-selected" : ""}${location.Closed ? " is-closed" : ""}`}
+      style={
+        {
+          "--parking-marker-color": visual.color,
+          "--parking-marker-background": visual.background,
+        } as React.CSSProperties
+      }
+      aria-label={`${location.GarageName}，${visual.accessLabel}，${location.available} 个估算空位`}
+      title={`${visual.accessLabel} · ${location.available} 个估算空位`}
+    >
+      <span className="parking-map-marker__icon">
+        {location.kind === "surface" ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 3h6a5 5 0 0 1 0 10H9v8H7V3Zm2 2v6h4a3 3 0 1 0 0-6H9Z" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 3h16v18h-2v-2H6v2H4V3Zm2 2v3h12V5H6Zm0 5v7h12v-7H6Zm2 2h3v3H8v-3Z" />
+          </svg>
+        )}
+      </span>
+      <span className="parking-map-marker__count">
+        {location.Closed ? "关" : location.available}
+      </span>
+    </button>
   );
-  element.title = `${visual.accessLabel} · ${location.available} 个估算空位`;
-
-  const icon = document.createElement("span");
-  icon.className = "parking-map-marker__icon";
-  icon.innerHTML =
-    location.kind === "surface"
-      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h6a5 5 0 0 1 0 10H9v8H7V3Zm2 2v6h4a3 3 0 1 0 0-6H9Z"/></svg>'
-      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v18h-2v-2H6v2H4V3Zm2 2v3h12V5H6Zm0 5v7h12v-7H6Zm2 2h3v3H8v-3Z"/></svg>';
-
-  const count = document.createElement("span");
-  count.className = "parking-map-marker__count";
-  count.textContent = location.Closed ? "关" : String(location.available);
-  element.append(icon, count);
-  return element;
 }
 
-function routeLabelMarkerElement(
-  route: TransitRoute,
-  directionSummary?: string,
-) {
-  const element = document.createElement("div");
-  element.className = "cabs-route-map-label";
-  element.style.setProperty("--route-color", route.color);
-  const code = document.createElement("b");
-  code.textContent = route.code;
-  const copy = document.createElement("span");
-  const name = document.createElement("strong");
-  name.textContent = route.name;
-  copy.append(name);
-  if (directionSummary) {
-    const direction = document.createElement("small");
-    direction.textContent = directionSummary;
-    copy.append(direction);
-  }
-  element.append(code, copy);
-  return element;
+function formatTransitUpdated(value?: string) {
+  if (!value) return undefined;
+  const updated = new Date(value);
+  if (Number.isNaN(updated.getTime())) return undefined;
+  return `${updated.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+  })} ET`;
 }
 
-function vehicleMarkerElement(
-  routeCode: string,
-  color: string,
-  heading?: number,
-  delayed = false,
-) {
-  const element = document.createElement("button");
-  element.type = "button";
-  element.className = `transit-map-marker${delayed ? " is-delayed" : ""}`;
-  element.style.setProperty("--route-color", color);
-  element.setAttribute("aria-label", `${routeCode} 线路公交`);
-  element.setAttribute("aria-haspopup", "dialog");
-
-  const bus = document.createElement("span");
-  bus.className = "transit-map-marker__bus";
-  bus.innerHTML =
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a3 3 0 0 1 3 3v10a2 2 0 0 1-2 2h-1v2h-2v-2H8v2H6v-2H5a2 2 0 0 1-2-2V6a3 3 0 0 1 3-3Zm0 2a1 1 0 0 0-1 1v5h14V6a1 1 0 0 0-1-1H6Zm1 8a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm10 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>';
-  const code = document.createElement("b");
-  code.textContent = routeCode;
-  element.append(bus, code);
-  if (typeof heading === "number" && Number.isFinite(heading)) {
-    const direction = document.createElement("i");
-    direction.className = "transit-map-marker__direction";
-    direction.style.transform = `rotate(${heading}deg)`;
-    direction.textContent = "▲";
-    element.append(direction);
-  }
-  return element;
-}
-
-function updateVehicleMarkerElement(
-  element: HTMLElement,
-  routeCode: string,
-  color: string,
-  heading?: number,
-  delayed = false,
-) {
-  element.style.setProperty("--route-color", color);
-  element.classList.toggle("is-delayed", delayed);
-  element.setAttribute("aria-label", `${routeCode} 线路公交`);
-  const code = element.querySelector("b");
-  if (code) code.textContent = routeCode;
-
-  const currentDirection = element.querySelector<HTMLElement>(
-    ".transit-map-marker__direction",
-  );
-  if (typeof heading === "number" && Number.isFinite(heading)) {
-    const direction = currentDirection ?? document.createElement("i");
-    direction.className = "transit-map-marker__direction";
-    direction.style.transform = `rotate(${heading}deg)`;
-    direction.textContent = "▲";
-    if (!currentDirection) element.append(direction);
-  } else {
-    currentDirection?.remove();
-  }
-}
-
-function transitPopupElement(info: TransitVehicleMapInfo) {
+function TransitStationBoard({
+  info,
+  color,
+}: {
+  info: TransitVehicleMapInfo;
+  color: string;
+}) {
   const { vehicle, route } = info;
-  const content = document.createElement("div");
-  content.className = "map-info-popup map-info-popup--transit";
-  const eyebrow = document.createElement("small");
-  eyebrow.textContent = [
-    vehicle.routeCode,
-    info.routeDirectionLabel,
-    "实时车辆",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const title = document.createElement("strong");
-  title.textContent = route?.name ?? "CABS 校园公交";
-  content.append(eyebrow, title);
+  const currentStop = info.lastReportedStop
+    ? {
+        label: "最近上报站",
+        name: info.lastReportedStop.name,
+        detail: "车辆上报",
+      }
+    : info.nearestStop
+      ? {
+          label: "车辆附近",
+          name: info.nearestStop.name,
+          detail: `位置估算 · ${info.nearestStop.distanceMeters} m`,
+        }
+      : undefined;
+  const upcoming = info.upcomingStops.slice(0, 3);
+  const updated = formatTransitUpdated(vehicle.updated);
 
-  const trip = document.createElement("section");
-  trip.className = "transit-popup-trip";
-  const addTripRow = (
-    label: string,
-    value: string,
-    detail?: string,
-    emphasis = false,
-  ) => {
-    const row = document.createElement("div");
-    if (emphasis) row.className = "is-next";
-    const copy = document.createElement("span");
-    const term = document.createElement("small");
-    term.textContent = label;
-    const main = document.createElement("strong");
-    main.textContent = value;
-    copy.append(term, main);
-    row.append(copy);
-    if (detail) {
-      const meta = document.createElement("b");
-      meta.textContent = detail;
-      row.append(meta);
-    }
-    trip.append(row);
-  };
+  return (
+    <div
+      className="transit-station-board"
+      style={{ "--route-color": color } as React.CSSProperties}
+    >
+      <header className="transit-station-board__header">
+        <span>{vehicle.routeCode}</span>
+        <div>
+          <small>CABS · 实时车辆 {info.vehicleLabel}</small>
+          <strong>{route?.name ?? "校园公交"}</strong>
+        </div>
+        <Icon icon="solar:bus-bold" />
+      </header>
 
-  if (vehicle.lastStop?.trim()) {
-    addTripRow("最近上报站", vehicle.lastStop.trim());
-  } else if (info.nearestStop) {
-    addTripRow(
-      info.nearestStop.label,
-      info.nearestStop.name,
-      `${info.nearestStop.distanceMeters} m`,
-    );
-  }
-  if (info.nextStop?.stopName) {
-    addTripRow(
-      info.nextStop.type === "departure" ? "下一次发车" : "下一站",
-      info.nextStop.stopName,
-      info.etaMinutes === undefined
-        ? "实时预测"
-        : info.etaMinutes <= 1
-          ? "即将到达"
-          : `${info.etaMinutes} 分钟`,
-      true,
-    );
-  }
-  addTripRow("行驶终点", info.destination || "线路运行中");
-  content.append(trip);
+      <div className="transit-station-board__destination">
+        <span>开往</span>
+        <strong>{info.destination || info.terminalStop?.name || "线路终点"}</strong>
+        {info.routeDirectionLabel && <small>{info.routeDirectionLabel}</small>}
+      </div>
 
-  const facts = document.createElement("div");
-  if (typeof vehicle.speed === "number") {
-    const speed = document.createElement("span");
-    speed.textContent = `速度 ${Math.round(vehicle.speed)} mph`;
-    facts.append(speed);
-  }
-  if (vehicle.delayed) {
-    const delay = document.createElement("span");
-    delay.className = "is-warning";
-    delay.textContent = "可能延误";
-    facts.append(delay);
-  }
-  if (vehicle.updated) {
-    const updated = new Date(vehicle.updated);
-    if (!Number.isNaN(updated.getTime())) {
-      const time = document.createElement("span");
-      time.textContent = `更新 ${updated.toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "America/New_York",
-      })} ET`;
-      facts.append(time);
-    }
-  }
-  if (facts.childElementCount) content.append(facts);
-  return content;
-}
+      <section className="transit-station-board__stops">
+        {currentStop && (
+          <div className="is-current">
+            <i />
+            <span>
+              <small>{currentStop.label}</small>
+              <strong>{currentStop.name}</strong>
+              <em>{currentStop.detail}</em>
+            </span>
+          </div>
+        )}
+        {upcoming.length > 0 ? (
+          upcoming.map((stop, index) => (
+            <div key={`${stop.id ?? stop.name}-${index}`} className={index === 0 ? "is-next" : ""}>
+              <i>{index === 0 ? <Icon icon="solar:bus-bold" /> : null}</i>
+              <span>
+                <small>{index === 0 ? "下一站" : `后续第 ${index + 1} 站`}</small>
+                <strong>{stop.name}</strong>
+                {stop.destination && <em>开往 {stop.destination}</em>}
+              </span>
+              <b>
+                {stop.etaMinutes === undefined
+                  ? "预测中"
+                  : stop.etaMinutes <= 1
+                    ? "即将到站"
+                    : `${stop.etaMinutes} 分`}
+              </b>
+            </div>
+          ))
+        ) : (
+          <div className="is-next">
+            <i />
+            <span>
+              <small>下一站</small>
+              <strong>{info.nextStop?.stopName ?? "等待实时到站预测"}</strong>
+            </span>
+            <b>预测中</b>
+          </div>
+        )}
+        {info.terminalStop &&
+          !upcoming.some((stop) => stop.name === info.terminalStop?.name) && (
+            <div className="is-terminal">
+              <i />
+              <span>
+                <small>线路终点</small>
+                <strong>{info.terminalStop.name}</strong>
+              </span>
+            </div>
+          )}
+      </section>
 
-function evMarkerElement(station: EvStation) {
-  const element = document.createElement("button");
-  element.type = "button";
-  const isTeslaSupercharger =
-    station.networkKind === "tesla-supercharger";
-  element.className = `ev-map-marker${isTeslaSupercharger ? " is-tesla" : " is-third-party"}`;
-  element.setAttribute(
-    "aria-label",
-    `${station.name}，${station.capacity ?? "未知数量"} 个充电端口`,
+      <footer className="transit-station-board__meta">
+        {typeof vehicle.speed === "number" && (
+          <span>{Math.round(vehicle.speed)} mph</span>
+        )}
+        {vehicle.delayed && <span className="is-warning">可能延误</span>}
+        {updated && <span>更新 {updated}</span>}
+        <small>到站时间来自车辆实时预测</small>
+      </footer>
+    </div>
   );
-  element.setAttribute("aria-haspopup", "dialog");
-  if (isTeslaSupercharger) {
-    const logo = document.createElement("b");
-    logo.textContent = "T";
-    element.append(logo);
-  } else {
-    element.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-7 11h5l-1 9 8-12h-5V2Z"/></svg>';
-  }
-  return element;
 }
 
 function formatEvAvailabilityUpdate(value?: string) {
@@ -723,135 +507,124 @@ function formatEvAvailabilityUpdate(value?: string) {
   })} ET`;
 }
 
-function evStationPopupElement(station: EvStation) {
-  const content = document.createElement("div");
-  content.className = "map-info-popup map-info-popup--ev";
+function safeHttpsUrl(value?: string, base?: string) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value, base);
+    return url.protocol === "https:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-  const eyebrow = document.createElement("small");
-  eyebrow.textContent =
-    station.networkKind === "tesla-supercharger"
-      ? "TESLA SUPERCHARGER"
-      : `${station.operator ?? "PUBLIC EV"} · DC FAST`;
-  const title = document.createElement("strong");
-  title.textContent = station.name;
-  content.append(eyebrow, title);
-
-  const availability = document.createElement("section");
-  availability.className = "ev-popup-availability";
-  const availabilityValue = document.createElement("strong");
-  if (
+function EvStationPopup({ station }: { station: EvStation }) {
+  const hasRealtimeAvailability =
     station.availabilityIsRealtime &&
     typeof station.availablePorts === "number" &&
     Number.isFinite(station.availablePorts) &&
     typeof station.capacity === "number" &&
     Number.isFinite(station.capacity) &&
-    station.capacity > 0
-  ) {
-    const availablePorts = Math.min(
-      station.capacity,
-      Math.max(0, station.availablePorts),
-    );
-    const occupied = station.capacity - availablePorts;
-    const percent = Math.round((occupied / station.capacity) * 100);
-    availabilityValue.textContent = `${availablePorts} / ${station.capacity} 可用`;
-    const occupancy = document.createElement("span");
-    const availabilityUpdate = formatEvAvailabilityUpdate(
-      station.availabilityUpdatedAt,
-    );
-    occupancy.textContent = [
-      `占用 ${percent}%`,
-      availabilityUpdate ? `更新 ${availabilityUpdate}` : undefined,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    availability.append(availabilityValue, occupancy);
-  } else {
-    availabilityValue.textContent = station.capacity
-      ? `${station.capacity} 个快充端口`
-      : "端口数量未公开";
-    const status = document.createElement("span");
-    status.textContent =
-      station.availabilityIsRealtime
-        ? "实时端口状态暂不可用"
-        : station.status === "operational"
-          ? "站点运营中 · 非实时端口状态"
-          : "请在运营商应用确认";
-    availability.append(availabilityValue, status);
-  }
-  content.append(availability);
-
-  if (station.connectors.length > 0) {
-    const connectors = document.createElement("div");
-    connectors.className = "ev-popup-connectors";
-    station.connectors.forEach((connector) => {
-      const chip = document.createElement("span");
-      const connectorName =
-        connector.type === "other" ? "接口未公开" : connector.type;
-      chip.textContent = [
-        connectorName,
-        connector.count
-          ? `× ${connector.count} 端口`
-          : connector.type === "other"
-            ? undefined
-            : "支持接口",
-        connector.powerKw ? `最高 ${connector.powerKw} kW` : undefined,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      connectors.append(chip);
-    });
-    content.append(connectors);
-  }
-
-  const facts = document.createElement("dl");
-  const addFact = (label: string, value?: string) => {
-    if (!value) return;
-    const row = document.createElement("div");
-    const term = document.createElement("dt");
-    term.textContent = label;
-    const detail = document.createElement("dd");
-    detail.textContent = value;
-    row.append(term, detail);
-    facts.append(row);
-  };
-  addFact("价格", station.pricing ?? "运营商未公开；以 App/现场为准");
-  addFact("开放", station.hours);
-  addFact("地址", station.address);
-  addFact("限制", station.accessNote);
-  if (facts.childElementCount) content.append(facts);
-
+    station.capacity > 0;
+  const availablePorts = hasRealtimeAvailability
+    ? Math.min(station.capacity!, Math.max(0, station.availablePorts!))
+    : undefined;
+  const occupiedPercent =
+    availablePorts === undefined
+      ? undefined
+      : Math.round(((station.capacity! - availablePorts) / station.capacity!) * 100);
+  const availabilityUpdate = formatEvAvailabilityUpdate(
+    station.availabilityUpdatedAt,
+  );
   const source =
     station.sources.find(
       (candidate) =>
         candidate.label.includes("Tesla") ||
         candidate.label.includes("Ohio State"),
     ) ?? station.sources[0];
-  if (source) {
-    const footer = document.createElement("footer");
-    const updated = document.createElement("span");
-    updated.textContent = station.updatedAt
-      ? `数据更新 ${station.updatedAt.slice(0, 10)}`
-      : "可追溯站点资料";
-    footer.append(updated);
-    try {
-      const url = new URL(source.url);
-      if (url.protocol === "https:") {
-        const link = document.createElement("a");
-        link.href = url.toString();
-        link.target = "_blank";
-        link.rel = "noreferrer";
-        link.textContent = `${source.label} ↗`;
-        footer.append(link);
-      }
-    } catch {
-      // A bad upstream source URL must not become an interactive link.
-    }
-    content.append(footer);
-  }
-  return content;
+  const sourceUrl = safeHttpsUrl(source?.url);
+  const facts = [
+    ["价格", station.pricing ?? "运营商未公开；以 App/现场为准"],
+    ["开放", station.hours],
+    ["地址", station.address],
+    ["限制", station.accessNote],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+
+  return (
+    <div className="map-info-popup map-info-popup--ev">
+      <small>
+        {station.networkKind === "tesla-supercharger"
+          ? "TESLA SUPERCHARGER"
+          : `${station.operator ?? "PUBLIC EV"} · DC FAST`}
+      </small>
+      <strong>{station.name}</strong>
+      <section className="ev-popup-availability">
+        <strong>
+          {availablePorts !== undefined
+            ? `${availablePorts} / ${station.capacity} 可用`
+            : station.capacity
+              ? `${station.capacity} 个快充端口`
+              : "端口数量未公开"}
+        </strong>
+        <span>
+          {occupiedPercent !== undefined
+            ? [`占用 ${occupiedPercent}%`, availabilityUpdate ? `更新 ${availabilityUpdate}` : undefined]
+                .filter(Boolean)
+                .join(" · ")
+            : station.availabilityIsRealtime
+              ? "实时端口状态暂不可用"
+              : station.status === "operational"
+                ? "站点运营中 · 非实时端口状态"
+                : "请在运营商应用确认"}
+        </span>
+      </section>
+      {station.connectors.length > 0 && (
+        <div className="ev-popup-connectors">
+          {station.connectors.map((connector, index) => (
+            <span key={`${connector.type}-${index}`}>
+              {[
+                connector.type === "other" ? "接口未公开" : connector.type,
+                connector.count
+                  ? `× ${connector.count} 端口`
+                  : connector.type === "other"
+                    ? undefined
+                    : "支持接口",
+                connector.powerKw ? `最高 ${connector.powerKw} kW` : undefined,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          ))}
+        </div>
+      )}
+      {facts.length > 0 && (
+        <dl>
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {source && (
+        <footer>
+          <span>
+            {station.updatedAt
+              ? `数据更新 ${station.updatedAt.slice(0, 10)}`
+              : "可追溯站点资料"}
+          </span>
+          {sourceUrl && (
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              {source.label} ↗
+            </a>
+          )}
+        </footer>
+      )}
+    </div>
+  );
 }
 
-export default function CampusMap({
+function CampusMapRuntime({
   variant = "default",
   locations = [],
   selectedId,
@@ -864,22 +637,21 @@ export default function CampusMap({
   permitAreas,
   showPermitAreas = true,
   expandedPermitZones = [],
-  onTogglePermitZone,
   expandedParkingGroup,
-  onToggleParkingGroup,
-  className,
 }: CampusMapProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
-  const parkingMarkersRef = useRef<Marker[]>([]);
-  const parkingGroupMarkersRef = useRef<Marker[]>([]);
-  const permitMarkersRef = useRef<Marker[]>([]);
-  const permitLotMarkersRef = useRef<Marker[]>([]);
-  const transitMarkersRef = useRef<Map<string, Marker>>(new Map());
-  const transitRouteMarkersRef = useRef<Marker[]>([]);
-  const evMarkersRef = useRef<Marker[]>([]);
+  const { map } = useMap();
+  const mapRef = useRef<MapLibreMap | null>(map);
+  const lastFocusedSelectedIdRef = useRef<number | undefined>(undefined);
+  const didFitPermitPreviewRef = useRef(false);
   const isPermitPreview = variant === "permit-preview";
   const expandedPermitZoneKey = [...expandedPermitZones].sort().join(",");
+  const expandedPermitZoneSet = useMemo(
+    () =>
+      new Set(
+        expandedPermitZoneKey ? expandedPermitZoneKey.split(",") : [],
+      ),
+    [expandedPermitZoneKey],
+  );
 
   const routeColors = useMemo(
     () =>
@@ -888,366 +660,125 @@ export default function CampusMap({
       ),
     [transitFeed.routes],
   );
-  const routesByCode = useMemo(
-    () =>
-      Object.fromEntries(
-        transitFeed.routes.map((route) => [route.code, route]),
-      ),
-    [transitFeed.routes],
+  const transitGeometryFeed = useMemo<TransitFeed>(
+    () => ({
+      routes: transitFeed.routes,
+      details: transitFeed.details,
+      vehicles: [],
+    }),
+    [transitFeed.details, transitFeed.routes],
+  );
+  const transitRouteData = useMemo(
+    () => buildTransitRouteFeatureCollection(activeRoutes, transitGeometryFeed),
+    [activeRoutes, transitGeometryFeed],
+  );
+  const parkingGroupRegion = useMemo(
+    () => buildParkingGroupRegion(expandedParkingGroup, locations),
+    [expandedParkingGroup, locations],
+  );
+  const permitAreaData = useMemo<FeatureCollection>(
+    () => ({
+      type: "FeatureCollection",
+      features: showPermitAreas
+        ? permitAreas.features.flatMap((feature) => {
+            if (
+              feature.geometry?.type !== "Polygon" &&
+              feature.geometry?.type !== "MultiPolygon"
+            ) {
+              return [];
+            }
+            const code =
+              typeof feature.properties?.Permit === "string"
+                ? feature.properties.Permit
+                : "";
+            const meta = getPermitZoneMeta(code);
+            if (!meta) return [];
+            return [
+              {
+                ...feature,
+                properties: {
+                  ...feature.properties,
+                  zoneCode: meta.code,
+                  zoneColor: meta.color,
+                  zoneOutline: meta.outlineColor,
+                  fillOpacity:
+                    expandedPermitZoneSet.size === 0
+                      ? isPermitPreview
+                        ? 0.3
+                        : 0.21
+                      : expandedPermitZoneSet.has(meta.code)
+                        ? 0.34
+                        : 0.1,
+                },
+              },
+            ];
+          })
+        : [],
+    }),
+    [
+      expandedPermitZoneSet,
+      isPermitPreview,
+      permitAreas.features,
+      showPermitAreas,
+    ],
   );
 
-  useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+  const selectedLocation = locations.find(
+    (location) => location.GarageId === selectedId,
+  );
+  const selectedLongitude = selectedLocation?.longitude;
+  const selectedLatitude = selectedLocation?.latitude;
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: baseStyle,
-      center: CAMPUS_CENTER,
-      zoom: 13.25,
-      minZoom: 11,
-      maxZoom: 19,
-      attributionControl: false,
-    });
-    map.addControl(
-      new maplibregl.NavigationControl({ visualizePitch: true }),
-      "bottom-right",
-    );
-    map.addControl(
-      new maplibregl.AttributionControl({ compact: true }),
-      "bottom-left",
-    );
-    if (!isPermitPreview) {
-      map.addControl(
-        new maplibregl.GeolocateControl({
-          positionOptions: { enableHighAccuracy: true },
-          trackUserLocation: false,
-        }),
-        "bottom-right",
-      );
+  useEffect(() => {
+    const map = mapRef.current;
+    if (selectedId === undefined) {
+      lastFocusedSelectedIdRef.current = undefined;
+      return;
     }
-
-    mapRef.current = map;
-    const observer = new ResizeObserver(() => map.resize());
-    observer.observe(containerRef.current);
-
-    return () => {
-      observer.disconnect();
-      map.remove();
-      mapRef.current = null;
-    };
-  }, [isPermitPreview]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    let active = true;
-    const renderPermitAreas = () => {
-      if (!active || !showPermitAreas || permitAreas.features.length === 0) {
-        return;
-      }
-      const expanded = new Set(expandedPermitZones);
-      const data: FeatureCollection = {
-        type: "FeatureCollection",
-        features: permitAreas.features.flatMap((feature) => {
-          if (
-            feature.geometry?.type !== "Polygon" &&
-            feature.geometry?.type !== "MultiPolygon"
-          ) {
-            return [];
-          }
-        const code =
-          typeof feature.properties?.Permit === "string"
-            ? feature.properties.Permit
-            : "";
-        const meta = getPermitZoneMeta(code);
-          if (!meta) return [];
-          return [
-            {
-              ...feature,
-              properties: {
-                ...feature.properties,
-                zoneCode: meta.code,
-                zoneColor: meta.color,
-                zoneOutline: meta.outlineColor,
-                fillOpacity:
-                  expanded.size === 0
-                    ? isPermitPreview
-                      ? 0.3
-                      : 0.21
-                    : expanded.has(meta.code)
-                      ? 0.34
-                      : 0.1,
-              },
-            },
-          ];
-        }),
-      };
-
-      map.addSource(PERMIT_SOURCE_ID, { type: "geojson", data });
-      const beforeId = map.getLayer(CABS_HALO_LAYER_ID)
-        ? CABS_HALO_LAYER_ID
-        : undefined;
-      map.addLayer(
-        {
-          id: PERMIT_FILL_LAYER_ID,
-          type: "fill",
-          source: PERMIT_SOURCE_ID,
-          paint: {
-            "fill-color": ["get", "zoneColor"],
-            "fill-opacity": ["get", "fillOpacity"],
-          },
-        },
-        beforeId,
-      );
-      map.addLayer(
-        {
-          id: PERMIT_OUTLINE_LAYER_ID,
-          type: "line",
-          source: PERMIT_SOURCE_ID,
-          paint: {
-            "line-color": ["get", "zoneOutline"],
-            "line-opacity": 0.86,
-            "line-width": isPermitPreview ? 2 : 1.4,
-          },
-          layout: {
-            "line-cap": "round",
-            "line-join": "round",
-          },
-        },
-        beforeId,
-      );
-    };
-
-    if (map.isStyleLoaded()) renderPermitAreas();
-    else map.once("load", renderPermitAreas);
-    return () => {
-      active = false;
-      map.off("load", renderPermitAreas);
-      removeLayerIfPresent(map, PERMIT_OUTLINE_LAYER_ID);
-      removeLayerIfPresent(map, PERMIT_FILL_LAYER_ID);
-      removeSourceIfPresent(map, PERMIT_SOURCE_ID);
-    };
-  }, [
-    expandedPermitZoneKey,
-    expandedPermitZones,
-    isPermitPreview,
-    permitAreas,
-    showPermitAreas,
-  ]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    parkingGroupMarkersRef.current.forEach((marker) => marker.remove());
-    parkingGroupMarkersRef.current = [];
-    if (isPermitPreview || locations.length === 0) return;
-
-    parkingGroupMarkersRef.current = getParkingMapGroups(locations).map(
-      (group) => {
-        const expanded = expandedParkingGroup === group.id;
-        const element = permitZoneMarkerElement(
-          group.code,
-          group.nameZh,
-          group.color,
-          group.count,
-          expanded,
-          () => onToggleParkingGroup?.(group.id),
-          "停车分类",
-        );
-        element.addEventListener("click", () => {
-          map.easeTo({
-            center: group.coordinates,
-            zoom: Math.max(map.getZoom(), expanded ? 13.7 : 14.5),
-            duration: 500,
-          });
-        });
-        return new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat(group.coordinates)
-          .addTo(map);
-      },
-    );
-
-    return () => {
-      parkingGroupMarkersRef.current.forEach((marker) => marker.remove());
-      parkingGroupMarkersRef.current = [];
-    };
-  }, [
-    expandedParkingGroup,
-    isPermitPreview,
-    locations,
-    onToggleParkingGroup,
-  ]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    permitMarkersRef.current.forEach((marker) => marker.remove());
-    permitMarkersRef.current = [];
-    if (!showPermitAreas || permitAreas.features.length === 0) return;
-
-    const expanded = new Set(expandedPermitZones);
-    permitMarkersRef.current = getPermitZoneRepresentatives(permitAreas).map(
-      ({ meta, coordinates, areaCount }) => {
-        const element = permitZoneMarkerElement(
-          meta.code,
-          meta.shortNameZh,
-          meta.color,
-          areaCount,
-          expanded.has(meta.code),
-          onTogglePermitZone,
-        );
-        element.addEventListener("click", () => {
-          map.easeTo({
-            center: coordinates,
-            zoom: Math.max(map.getZoom(), 14.6),
-            duration: 550,
-          });
-        });
-        return new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat(coordinates)
-          .addTo(map);
-      },
-    );
-
-    return () => {
-      permitMarkersRef.current.forEach((marker) => marker.remove());
-      permitMarkersRef.current = [];
-    };
-  }, [
-    expandedPermitZoneKey,
-    expandedPermitZones,
-    onTogglePermitZone,
-    permitAreas,
-    showPermitAreas,
-  ]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    permitLotMarkersRef.current.forEach((marker) => marker.remove());
-    permitLotMarkersRef.current = [];
     if (
+      !map ||
+      selectedLongitude === undefined ||
+      selectedLatitude === undefined ||
+      isPermitPreview ||
+      lastFocusedSelectedIdRef.current === selectedId
+    ) {
+      return;
+    }
+    lastFocusedSelectedIdRef.current = selectedId;
+    map.easeTo({
+      center: [selectedLongitude, selectedLatitude],
+      zoom: Math.max(map.getZoom(), 14.4),
+      duration: 700,
+      offset: [0, -60],
+    });
+  }, [isPermitPreview, selectedId, selectedLatitude, selectedLongitude]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (
+      !map ||
+      !isPermitPreview ||
+      didFitPermitPreviewRef.current ||
       !showPermitAreas ||
-      expandedPermitZones.length === 0 ||
       permitAreas.features.length === 0
     ) {
       return;
     }
 
-    const expanded = new Set(expandedPermitZones);
-    permitLotMarkersRef.current = getPermitLotRepresentatives(permitAreas)
-      .filter((lot) => expanded.has(lot.code))
-      .map((lot) => {
-        const meta = getPermitZoneMeta(lot.code);
-        if (!meta) return undefined;
-        const element = permitLotMarkerElement(lot, meta.color);
-        const popup = new maplibregl.Popup({
-          offset: 16,
-          closeButton: false,
-          maxWidth: "270px",
-        }).setDOMContent(permitLotPopupElement(lot));
-        return new maplibregl.Marker({ element, anchor: "bottom" })
-          .setLngLat(lot.coordinates)
-          .setPopup(popup)
-          .addTo(map);
-      })
-      .filter((marker): marker is Marker => Boolean(marker));
-
-    return () => {
-      permitLotMarkersRef.current.forEach((marker) => marker.remove());
-      permitLotMarkersRef.current = [];
-    };
-  }, [
-    expandedPermitZoneKey,
-    expandedPermitZones,
-    permitAreas,
-    showPermitAreas,
-  ]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    parkingMarkersRef.current.forEach((marker) => marker.remove());
-    parkingMarkersRef.current = [];
-    if (isPermitPreview) return;
-
-    const visibleLocations = locations.filter(
-      (location) =>
-        parkingGroupForLocation(location) === expandedParkingGroup ||
-        location.GarageId === selectedId,
-    );
-    parkingMarkersRef.current = visibleLocations.map((location) => {
-      const element = parkingMarkerElement(
-        location,
-        location.GarageId === selectedId,
-      );
-      element.addEventListener("click", () => onSelect?.(location.GarageId));
-      return new maplibregl.Marker({
-        element,
-        anchor: "bottom",
-      })
-        .setLngLat([location.longitude, location.latitude])
-        .addTo(map);
-    });
-
-    return () => {
-      parkingMarkersRef.current.forEach((marker) => marker.remove());
-      parkingMarkersRef.current = [];
-    };
-  }, [
-    expandedParkingGroup,
-    isPermitPreview,
-    locations,
-    onSelect,
-    selectedId,
-  ]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const selected = locations.find(
-      (location) => location.GarageId === selectedId,
-    );
-    if (!map || !selected || isPermitPreview) return;
-    map.easeTo({
-      center: [selected.longitude, selected.latitude],
-      zoom: Math.max(map.getZoom(), 14.4),
-      duration: 700,
-      offset: [0, -60],
-    });
-  }, [isPermitPreview, locations, selectedId]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !showPermitAreas || permitAreas.features.length === 0) return;
-
     const bounds = getPermitAreaBounds(permitAreas);
     if (!bounds) return;
+    didFitPermitPreviewRef.current = true;
     map.fitBounds(bounds, {
-      padding: isPermitPreview
-        ? 30
-        : { top: 82, right: 86, bottom: 70, left: 86 },
-      maxZoom: isPermitPreview ? 16 : 14.7,
+      padding: 30,
+      maxZoom: 16,
       duration: 450,
     });
   }, [isPermitPreview, permitAreas, showPermitAreas]);
 
   useEffect(() => {
     const map = mapRef.current;
-    transitRouteMarkersRef.current.forEach((marker) => marker.remove());
-    transitRouteMarkersRef.current = [];
     if (!map || isPermitPreview || !showTransit) return;
-
-    const routeData = buildTransitRouteFeatureCollection(
-      activeRoutes,
-      transitFeed,
-    );
-    const routes = routeData.features.map((feature) => ({
-      code: feature.properties.routeCode,
-      color: feature.properties.color,
-      coordinates: feature.geometry.coordinates as [number, number][],
-      direction: feature.properties.direction,
-    }));
-    if (routes.length === 0) return;
+    if (transitRouteData.features.length === 0) return;
 
     let active = true;
     const renderRoutes = () => {
@@ -1255,7 +786,10 @@ export default function CampusMap({
       if (!map.hasImage(CABS_DIRECTION_IMAGE_ID)) {
         map.addImage(CABS_DIRECTION_IMAGE_ID, createDirectionArrowImage());
       }
-      map.addSource(CABS_SOURCE_ID, { type: "geojson", data: routeData });
+      map.addSource(CABS_SOURCE_ID, {
+        type: "geojson",
+        data: transitRouteData,
+      });
       map.addLayer({
         id: CABS_HALO_LAYER_ID,
         type: "line",
@@ -1298,187 +832,213 @@ export default function CampusMap({
 
     if (map.isStyleLoaded()) renderRoutes();
     else map.once("load", renderRoutes);
-    const labelRoutes = Array.from(
-      routes.reduce((grouped, route) => {
-        const current = grouped.get(route.code);
-        if (!current || route.coordinates.length > current.coordinates.length) {
-          grouped.set(route.code, route);
-        }
-        return grouped;
-      }, new Map<string, (typeof routes)[number]>()),
-    ).map(([, route]) => route);
-
-    transitRouteMarkersRef.current = labelRoutes.flatMap((route) => {
-      const routeMeta = routesByCode[route.code];
-      if (!routeMeta || route.coordinates.length < 2) return [];
-      const middle = route.coordinates[Math.floor(route.coordinates.length / 2)];
-      const element = routeLabelMarkerElement(
-        routeMeta,
-        transitDirectionLabel(route.direction),
-      );
-      return [
-        new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat(middle)
-          .addTo(map),
-      ];
-    });
-
-    const fitTimer = window.setTimeout(() => {
-      const bounds = new maplibregl.LngLatBounds();
-      routes.forEach((route) =>
-        route.coordinates.forEach((coordinate) => bounds.extend(coordinate)),
-      );
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, {
-          padding: { top: 86, right: 72, bottom: 76, left: 72 },
-          maxZoom: 14.2,
-          duration: 600,
-        });
-      }
-    }, 650);
     return () => {
       active = false;
-      window.clearTimeout(fitTimer);
       map.off("load", renderRoutes);
       removeLayerIfPresent(map, CABS_DIRECTION_LAYER_ID);
       removeLayerIfPresent(map, CABS_LINE_LAYER_ID);
       removeLayerIfPresent(map, CABS_HALO_LAYER_ID);
       removeSourceIfPresent(map, CABS_SOURCE_ID);
-      transitRouteMarkersRef.current.forEach((marker) => marker.remove());
-      transitRouteMarkersRef.current = [];
     };
-  }, [
-    activeRoutes,
-    isPermitPreview,
-    routesByCode,
-    showTransit,
-    transitFeed,
-  ]);
+  }, [isPermitPreview, showTransit, transitRouteData]);
 
-  useEffect(() => {
-    const markers = transitMarkersRef.current;
-    return () => {
-      markers.forEach((marker) => marker.remove());
-      markers.clear();
-    };
-  }, [isPermitPreview]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const markers = transitMarkersRef.current;
-    if (!map || !showTransit || isPermitPreview) {
-      markers.forEach((marker) => marker.remove());
-      markers.clear();
-      return;
-    }
-
-    const visibleVehicles = transitFeed.vehicles.filter(
-      (vehicle) =>
-        activeRoutes.includes(vehicle.routeCode) &&
-        Number.isFinite(vehicle.latitude) &&
-        Number.isFinite(vehicle.longitude),
-    );
-    const visibleKeys = new Set<string>();
-
-    visibleVehicles.forEach((vehicle) => {
-      const key = `${vehicle.routeCode}:${vehicle.id}`;
-      const color = routeColors[vehicle.routeCode] ?? "#334155";
-      visibleKeys.add(key);
-
-      let marker = markers.get(key);
-      if (!marker) {
-        const element = vehicleMarkerElement(
-          vehicle.routeCode,
-          color,
-          vehicle.heading,
-          vehicle.delayed,
-        );
-        marker = new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat([vehicle.longitude, vehicle.latitude])
-          .setPopup(
-            new maplibregl.Popup({
-              offset: 20,
-              closeButton: false,
-              maxWidth: "280px",
-            }).setDOMContent(
-              transitPopupElement(
-                deriveTransitVehicleMapInfo(vehicle, transitFeed),
-              ),
-            ),
-          )
-          .addTo(map);
-        markers.set(key, marker);
-        return;
-      }
-
-      marker.setLngLat([vehicle.longitude, vehicle.latitude]);
-      updateVehicleMarkerElement(
-        marker.getElement(),
-        vehicle.routeCode,
-        color,
-        vehicle.heading,
-        vehicle.delayed,
-      );
-      marker
-        .getPopup()
-        ?.setDOMContent(
-          transitPopupElement(
-            deriveTransitVehicleMapInfo(vehicle, transitFeed),
+  const visibleTransitVehicles = transitFeed.vehicles.filter(
+    (vehicle) =>
+      activeRoutes.includes(vehicle.routeCode) &&
+      Number.isFinite(vehicle.latitude) &&
+      Number.isFinite(vehicle.longitude),
+  );
+  const visibleParkingLocations = useMemo(
+    () =>
+      isPermitPreview
+        ? []
+        : locations.filter(
+            (location) =>
+              parkingMapGroupIdForLocation(location) ===
+                expandedParkingGroup || location.GarageId === selectedId,
           ),
-        );
-    });
-
-    markers.forEach((marker, key) => {
-      if (visibleKeys.has(key)) return;
-      marker.remove();
-      markers.delete(key);
-    });
-  }, [
-    activeRoutes,
-    isPermitPreview,
-    routeColors,
-    showTransit,
-    transitFeed,
-  ]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    evMarkersRef.current.forEach((marker) => marker.remove());
-    evMarkersRef.current = [];
-    if (!showEv || isPermitPreview) return;
-
-    evMarkersRef.current = evStations.map((station) => {
-      const element = evMarkerElement(station);
-      return new maplibregl.Marker({ element })
-        .setLngLat([station.longitude, station.latitude])
-        .setPopup(
-          new maplibregl.Popup({
-            offset: 20,
-            closeButton: false,
-            maxWidth: "320px",
-          }).setDOMContent(evStationPopupElement(station)),
-        )
-        .addTo(map);
-    });
-
-    return () => {
-      evMarkersRef.current.forEach((marker) => marker.remove());
-      evMarkersRef.current = [];
-    };
-  }, [evStations, isPermitPreview, showEv]);
+    [expandedParkingGroup, isPermitPreview, locations, selectedId],
+  );
+  const expandedPermitLots = useMemo(
+    () =>
+      showPermitAreas &&
+      expandedPermitZoneSet.size > 0 &&
+      permitAreas.features.length > 0
+        ? getPermitLotRepresentatives(permitAreas)
+            .filter((lot) => expandedPermitZoneSet.has(lot.code))
+            .flatMap((lot) => {
+              const meta = getPermitZoneMeta(lot.code);
+              return meta ? [{ lot, color: meta.color }] : [];
+            })
+        : [],
+    [expandedPermitZoneSet, permitAreas, showPermitAreas],
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className={className}
-      tabIndex={0}
-      role="region"
-      aria-label={
+    <>
+      {permitAreaData.features.length > 0 && (
+        <MapGeoJSON
+          id="campus-permit-areas"
+          data={permitAreaData}
+          fillPaint={PERMIT_AREA_FILL_PAINT}
+          linePaint={
+            isPermitPreview
+              ? PERMIT_AREA_PREVIEW_LINE_PAINT
+              : PERMIT_AREA_LINE_PAINT
+          }
+        />
+      )}
+      {!isPermitPreview && (
+        <MapGeoJSON
+          id="campus-parking-group-region"
+          data={parkingGroupRegion}
+          fillPaint={PARKING_GROUP_FILL_PAINT}
+          linePaint={PARKING_GROUP_LINE_PAINT}
+        />
+      )}
+      {visibleParkingLocations.map((location) => (
+        <MapMarker
+          key={location.GarageId}
+          longitude={location.longitude}
+          latitude={location.latitude}
+          anchor="bottom"
+          onClick={() => onSelect?.(location.GarageId)}
+        >
+          <MarkerContent>
+            <ParkingMarker
+              location={location}
+              selected={location.GarageId === selectedId}
+            />
+          </MarkerContent>
+        </MapMarker>
+      ))}
+      {expandedPermitLots.map(({ lot, color }) => (
+        <MapMarker
+          key={lot.id}
+          longitude={lot.coordinates[0]}
+          latitude={lot.coordinates[1]}
+          anchor="bottom"
+        >
+          <MarkerContent>
+            <button
+              type="button"
+              className="permit-lot-map-marker"
+              style={{ "--permit-zone-color": color } as React.CSSProperties}
+              aria-label={`${lot.name}，${lot.code} 停车证区域`}
+              aria-haspopup="dialog"
+            >
+              <b>{lot.code}</b>
+              <span>{lot.name}</span>
+            </button>
+          </MarkerContent>
+          <MarkerPopup offset={16} maxWidth="270px">
+            <PermitLotPopup lot={lot} />
+          </MarkerPopup>
+        </MapMarker>
+      ))}
+      {!isPermitPreview &&
+        showTransit &&
+        visibleTransitVehicles.map((vehicle) => {
+          const color = routeColors[vehicle.routeCode] ?? "#334155";
+          const info = deriveTransitVehicleMapInfo(vehicle, transitFeed);
+          return (
+            <MapMarker
+              key={`${vehicle.routeCode}:${vehicle.id}`}
+              longitude={vehicle.longitude}
+              latitude={vehicle.latitude}
+              anchor="center"
+            >
+              <MarkerContent>
+                <button
+                  type="button"
+                  className={`transit-map-marker${vehicle.delayed ? " is-delayed" : ""}`}
+                  style={{ "--route-color": color } as React.CSSProperties}
+                  aria-label={`${vehicle.routeCode} 线路公交 ${info.vehicleLabel}`}
+                  aria-haspopup="dialog"
+                >
+                  <span className="transit-map-marker__bus">
+                    <Icon icon="solar:bus-bold" aria-hidden="true" />
+                  </span>
+                  <b>{vehicle.routeCode}</b>
+                  {typeof vehicle.heading === "number" &&
+                    Number.isFinite(vehicle.heading) && (
+                      <i
+                        className="transit-map-marker__direction"
+                        style={{ transform: `rotate(${vehicle.heading}deg)` }}
+                        aria-hidden="true"
+                      >
+                        ▲
+                      </i>
+                    )}
+                </button>
+              </MarkerContent>
+              <MarkerPopup offset={22} maxWidth="340px">
+                <TransitStationBoard info={info} color={color} />
+              </MarkerPopup>
+            </MapMarker>
+          );
+        })}
+      {!isPermitPreview &&
+        showEv &&
+        evStations.map((station) => {
+          const isTesla = station.networkKind === "tesla-supercharger";
+          return (
+            <MapMarker
+              key={station.id}
+              longitude={station.longitude}
+              latitude={station.latitude}
+              anchor="bottom"
+            >
+              <MarkerContent>
+                <button
+                  type="button"
+                  className={
+                    `ev-map-marker${isTesla ? " is-tesla" : " is-third-party"}`
+                  }
+                  aria-label={`${station.name}，${station.capacity ?? "未知数量"} 个充电端口`}
+                  aria-haspopup="dialog"
+                >
+                  {isTesla ? (
+                    <b>T</b>
+                  ) : (
+                    <Icon icon="solar:bolt-bold" aria-hidden="true" />
+                  )}
+                </button>
+              </MarkerContent>
+              <MarkerPopup offset={20} maxWidth="320px">
+                <EvStationPopup station={station} />
+              </MarkerPopup>
+            </MapMarker>
+          );
+        })}
+    </>
+  );
+}
+
+export default function CampusMap(props: CampusMapProps) {
+  const isPermitPreview = props.variant === "permit-preview";
+  return (
+    <MapCNMap
+      styles={{ light: baseStyle }}
+      center={CAMPUS_CENTER}
+      zoom={13.25}
+      minZoom={11}
+      maxZoom={19}
+      attributionControl={{ compact: true }}
+      className={props.className}
+      ariaLabel={
         isPermitPreview
           ? "所选停车证当前可用停车区域预览"
-          : "OSU 校园停车与公交实时地图"
+          : "OSU 校园停车、充电与公交实时地图"
       }
-    />
+    >
+      <CampusMapRuntime {...props} />
+      <MapControls
+        position="bottom-right"
+        showZoom
+        showCompass
+        showLocate={!isPermitPreview}
+      />
+    </MapCNMap>
   );
 }

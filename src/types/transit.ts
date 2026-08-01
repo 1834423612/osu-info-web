@@ -12,6 +12,7 @@ export type TransitStop = {
   latitude: number;
   longitude: number;
   name: string;
+  service?: string;
 };
 
 export type TransitPattern = {
@@ -43,6 +44,31 @@ export type TransitPrediction = {
   isDelayed?: boolean;
   vehicleId?: string | number;
   vehicleDistanceInFeet?: number;
+};
+
+/** A normalized stop used by the compact, real-time station board UI. */
+export type TransitStationBoardStop = {
+  id?: string;
+  name: string;
+  sequence: number;
+  etaSeconds?: number;
+  etaMinutes?: number;
+  predictionTime?: string;
+  destination?: string;
+  type?: string;
+  delayed?: boolean;
+};
+
+/**
+ * The public route endpoint does not expose an official per-pattern stop list.
+ * This shape therefore records both the estimated order and the map-matching
+ * distance, so callers never have to present a geographic estimate as an
+ * official live arrival.
+ */
+export type TransitPatternStop = TransitStop & {
+  sequence: number;
+  distanceAlongRouteMeters: number;
+  distanceToRouteMeters: number;
 };
 
 export type TransitVehicle = {

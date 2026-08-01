@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import fallbackStatus from "../../status-example.json";
+import fallbackStatus from "../../data-example/status-example.json";
 import {
   GARAGE_API_URL,
   parseGarageResponse,

@@ -4,9 +4,11 @@ import { decodePolyline } from "@/lib/polyline";
 import type {
   TransitFeed,
   TransitPattern,
+  TransitPatternStop,
   TransitPrediction,
   TransitRoute,
   TransitRouteDetail,
+  TransitStationBoardStop,
   TransitStop,
   TransitVehicle,
 } from "@/types/transit";
@@ -37,6 +39,7 @@ export type TransitNearbyStop = TransitStop & {
 
 export type TransitVehicleMapInfo = {
   vehicle: TransitVehicle;
+  vehicleLabel: string;
   route?: TransitRoute;
   pattern?: TransitPattern;
   routeDirection?: string;
@@ -45,7 +48,26 @@ export type TransitVehicleMapInfo = {
   etaSeconds?: number;
   etaMinutes?: number;
   nearestStop?: TransitNearbyStop;
+  lastReportedStop?: TransitStop;
+  upcomingStops: TransitStationBoardStop[];
+  terminalStop?: Pick<TransitStationBoardStop, "id" | "name">;
   destination?: string;
+};
+
+export type TransitPatternOverview = {
+  pattern: TransitPattern;
+  directionLabel: string;
+  stops: TransitPatternStop[];
+  terminalStop?: TransitPatternStop;
+};
+
+export type TransitRouteOverview = {
+  route: TransitRoute;
+  detail?: TransitRouteDetail;
+  patterns: TransitPatternOverview[];
+  vehicles: TransitVehicleMapInfo[];
+  vehicleCount: number;
+  operating: boolean;
 };
 
 function normalizeCode(value?: string) {
@@ -88,13 +110,19 @@ export function transitDirectionLabel(direction?: string) {
   if (["counterclockwise", "anticlockwise", "ccw"].includes(normalized)) {
     return "逆时针循环";
   }
-  if (["ib", "inbound"].includes(normalized)) return "进校方向";
-  if (["ob", "outbound"].includes(normalized)) return "出校方向";
+  // CABS uses IB/OB as internal pattern names. “上行/下行” is shorter and
+  // avoids implying that every IB pattern literally crosses a campus gate.
+  if (["ib", "inbound"].includes(normalized)) return "上行";
+  if (["ob", "outbound"].includes(normalized)) return "下行";
   if (["nb", "northbound", "north"].includes(normalized)) return "北行";
   if (["sb", "southbound", "south"].includes(normalized)) return "南行";
   if (["eb", "eastbound", "east"].includes(normalized)) return "东行";
   if (["wb", "westbound", "west"].includes(normalized)) return "西行";
   return undefined;
+}
+
+export function compactTransitStopName(name: string) {
+  return name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function decodeRenderableLine(encodedPolyline: string) {
@@ -118,6 +146,19 @@ function decodeRenderableLine(encodedPolyline: string) {
   } catch {
     return undefined;
   }
+}
+
+/** Prefer a concrete terminus over the feed's terse IB/OB vocabulary. */
+export function transitPatternDirectionLabel(
+  pattern: TransitPattern,
+  stops: readonly TransitStop[],
+) {
+  const generic = transitDirectionLabel(pattern.direction);
+  if (generic?.includes("循环")) return generic;
+
+  const terminal = estimateTransitPatternStopSequence(pattern, stops).at(-1);
+  const terminalName = terminal && compactTransitStopName(terminal.name);
+  return terminalName ? `开往 ${terminalName}` : (generic ?? "线路方向");
 }
 
 /** Build one stable GeoJSON line feature for every active CABS pattern. */
@@ -155,7 +196,7 @@ export function buildTransitRouteFeatureCollection(
           color,
           darkColor,
           direction: pattern.direction?.trim() ?? "",
-          directionLabel: transitDirectionLabel(pattern.direction) ?? "",
+          directionLabel: transitPatternDirectionLabel(pattern, detail.stops),
         },
         geometry: {
           type: "LineString",
@@ -191,6 +232,106 @@ function haversineDistanceMeters(
     2 *
     Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)))
   );
+}
+
+type LineProjection = {
+  distanceAlongRouteMeters: number;
+  distanceToRouteMeters: number;
+};
+
+function projectStopOntoLine(
+  stop: TransitStop,
+  coordinates: readonly [number, number][],
+): LineProjection | undefined {
+  if (coordinates.length < 2) return undefined;
+
+  let best: LineProjection | undefined;
+  let traversedMeters = 0;
+
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const [startLongitude, startLatitude] = coordinates[index - 1];
+    const [endLongitude, endLatitude] = coordinates[index];
+    const referenceLatitude =
+      ((startLatitude + endLatitude + stop.latitude) / 3) * (Math.PI / 180);
+    const metersPerLongitudeDegree =
+      111_320 * Math.max(0.01, Math.cos(referenceLatitude));
+    const metersPerLatitudeDegree = 110_574;
+    const segmentX =
+      (endLongitude - startLongitude) * metersPerLongitudeDegree;
+    const segmentY = (endLatitude - startLatitude) * metersPerLatitudeDegree;
+    const stopX =
+      (stop.longitude - startLongitude) * metersPerLongitudeDegree;
+    const stopY = (stop.latitude - startLatitude) * metersPerLatitudeDegree;
+    const squaredLength = segmentX * segmentX + segmentY * segmentY;
+    const progress =
+      squaredLength === 0
+        ? 0
+        : Math.max(
+            0,
+            Math.min(1, (stopX * segmentX + stopY * segmentY) / squaredLength),
+          );
+    const projectedX = segmentX * progress;
+    const projectedY = segmentY * progress;
+    const distanceToRouteMeters = Math.hypot(
+      stopX - projectedX,
+      stopY - projectedY,
+    );
+    const segmentLengthMeters = haversineDistanceMeters(
+      { latitude: startLatitude, longitude: startLongitude },
+      { latitude: endLatitude, longitude: endLongitude },
+    );
+    const candidate = {
+      distanceAlongRouteMeters:
+        traversedMeters + segmentLengthMeters * progress,
+      distanceToRouteMeters,
+    };
+
+    if (!best || candidate.distanceToRouteMeters < best.distanceToRouteMeters) {
+      best = candidate;
+    }
+    traversedMeters += segmentLengthMeters;
+  }
+
+  return best;
+}
+
+/**
+ * Estimate a pattern's stop order by map-matching the route-level stop set to
+ * its official encoded polyline. The feed does not publish an official
+ * per-pattern stop sequence, so `distanceToRouteMeters` remains available to
+ * callers that want to disclose or filter the estimate.
+ */
+export function estimateTransitPatternStopSequence(
+  pattern: TransitPattern,
+  stops: readonly TransitStop[],
+  maximumDistanceMeters = 90,
+): TransitPatternStop[] {
+  const coordinates = decodeRenderableLine(pattern.encodedPolyline);
+  if (!coordinates) return [];
+
+  return stops
+    .flatMap((stop) => {
+      if (
+        !Number.isFinite(stop.latitude) ||
+        !Number.isFinite(stop.longitude)
+      ) {
+        return [];
+      }
+      const projection = projectStopOntoLine(stop, coordinates);
+      if (
+        !projection ||
+        projection.distanceToRouteMeters > maximumDistanceMeters
+      ) {
+        return [];
+      }
+      return [{ ...stop, ...projection }];
+    })
+    .sort(
+      (first, second) =>
+        first.distanceAlongRouteMeters - second.distanceAlongRouteMeters ||
+        second.distanceToRouteMeters - first.distanceToRouteMeters,
+    )
+    .map((stop, index) => ({ ...stop, sequence: index + 1 }));
 }
 
 /**
@@ -232,9 +373,89 @@ export function findNearestTransitStop(
   };
 }
 
-function predictionEtaSeconds(prediction: TransitPrediction) {
+export function transitPredictionEtaSeconds(prediction: TransitPrediction) {
   const seconds = finiteNumber(prediction.timeToArrivalInSeconds);
-  return seconds !== undefined && seconds >= 0 ? Math.round(seconds) : undefined;
+  if (seconds !== undefined && seconds >= 0) return Math.round(seconds);
+
+  const countdownMinutes = finiteNumber(prediction.predictionCountdown);
+  if (countdownMinutes !== undefined && countdownMinutes >= 0) {
+    return Math.round(countdownMinutes * 60);
+  }
+
+  const predictionTime = prediction.predictionTime
+    ? Date.parse(prediction.predictionTime)
+    : Number.NaN;
+  const systemTime = prediction.systemTime
+    ? Date.parse(prediction.systemTime)
+    : Number.NaN;
+  if (Number.isFinite(predictionTime) && Number.isFinite(systemTime)) {
+    return Math.max(0, Math.round((predictionTime - systemTime) / 1_000));
+  }
+  return undefined;
+}
+
+/** Normalize the official prediction array into a stable station-board order. */
+export function buildTransitStationBoard(
+  vehicle: Pick<TransitVehicle, "routeCode" | "predictions">,
+  detail?: Pick<TransitRouteDetail, "stops">,
+): TransitStationBoardStop[] {
+  const routeCode = normalizeCode(vehicle.routeCode);
+  const stopsById = new Map(
+    detail?.stops.map((stop) => [String(stop.id), stop]) ?? [],
+  );
+  const predictions = Array.isArray(vehicle.predictions)
+    ? vehicle.predictions.filter(
+        (prediction) =>
+          !prediction.routeCode ||
+          normalizeCode(prediction.routeCode) === routeCode,
+      )
+    : [];
+
+  return predictions
+    .map((prediction, sourceIndex) => {
+      const matchedStop = prediction.stopId
+        ? stopsById.get(String(prediction.stopId))
+        : undefined;
+      const etaSeconds = transitPredictionEtaSeconds(prediction);
+      const stopName = compactTransitStopName(
+        prediction.stopName || matchedStop?.name || "待确认站点",
+      );
+      return {
+        id: prediction.stopId ? String(prediction.stopId) : matchedStop?.id,
+        name: stopName,
+        sequence: sourceIndex + 1,
+        etaSeconds,
+        etaMinutes:
+          etaSeconds === undefined ? undefined : Math.ceil(etaSeconds / 60),
+        predictionTime: prediction.predictionTime,
+        destination: prediction.destination,
+        type: prediction.type,
+        delayed: prediction.isDelayed,
+        sourceIndex,
+      };
+    })
+    .filter((stop) => stop.etaSeconds === undefined || stop.etaSeconds >= 0)
+    .sort((first, second) => {
+      if (first.etaSeconds === undefined) {
+        return second.etaSeconds === undefined
+          ? first.sourceIndex - second.sourceIndex
+          : 1;
+      }
+      if (second.etaSeconds === undefined) return -1;
+      return first.etaSeconds - second.etaSeconds ||
+        first.sourceIndex - second.sourceIndex;
+    })
+    .map((stop, index) => ({
+      id: stop.id,
+      name: stop.name,
+      sequence: index + 1,
+      etaSeconds: stop.etaSeconds,
+      etaMinutes: stop.etaMinutes,
+      predictionTime: stop.predictionTime,
+      destination: stop.destination,
+      type: stop.type,
+      delayed: stop.delayed,
+    }));
 }
 
 /** Select the earliest non-past official prediction for this vehicle. */
@@ -254,7 +475,7 @@ export function findNextTransitStop(
     .map((prediction, index) => ({
       prediction,
       index,
-      etaSeconds: predictionEtaSeconds(prediction),
+      etaSeconds: transitPredictionEtaSeconds(prediction),
     }))
     .filter(
       (candidate): candidate is {
@@ -291,6 +512,53 @@ function findVehiclePattern(
   return detail.patterns.length === 1 ? detail.patterns[0] : undefined;
 }
 
+function findLastReportedStop(
+  vehicle: TransitVehicle,
+  detail?: TransitRouteDetail,
+) {
+  if (vehicle.lastStop === null || vehicle.lastStop === undefined) {
+    return undefined;
+  }
+  const reported = String(vehicle.lastStop).trim();
+  if (!reported) return undefined;
+  const normalizedReported = compactTransitStopName(reported).toLowerCase();
+  return detail?.stops.find(
+    (stop) =>
+      String(stop.id) === reported ||
+      compactTransitStopName(stop.name).toLowerCase() === normalizedReported,
+  );
+}
+
+function findCurrentTripTerminal(
+  vehicle: TransitVehicle,
+  upcomingStops: readonly TransitStationBoardStop[],
+) {
+  const destination = (
+    vehicle.destination ?? upcomingStops.find((stop) => stop.destination)?.destination
+  )
+    ?.trim()
+    .toLowerCase();
+  if (!destination) return upcomingStops.at(-1);
+
+  let terminal: TransitStationBoardStop | undefined;
+  for (const stop of upcomingStops) {
+    const stopDestination = stop.destination?.trim().toLowerCase();
+    if (stopDestination && stopDestination !== destination) {
+      if (terminal) break;
+      continue;
+    }
+    terminal = stop;
+  }
+  return terminal;
+}
+
+export function transitVehicleLabel(vehicle: TransitVehicle) {
+  const identifier = vehicle.bus_id ?? vehicle.id;
+  return identifier === undefined || identifier === null || identifier === ""
+    ? "车辆号待确认"
+    : `#${String(identifier)}`;
+}
+
 /** Derive map-ready vehicle facts without guessing a current stop. */
 export function deriveTransitVehicleMapInfo(
   vehicle: TransitVehicle,
@@ -299,9 +567,10 @@ export function deriveTransitVehicleMapInfo(
   const route = findRoute(feed, vehicle.routeCode);
   const detail = findRouteDetail(feed, vehicle.routeCode);
   const pattern = findVehiclePattern(vehicle, detail);
+  const upcomingStops = buildTransitStationBoard(vehicle, detail);
   const nextPrediction = findNextTransitStop(vehicle);
   const etaSeconds = nextPrediction
-    ? predictionEtaSeconds(nextPrediction)
+    ? transitPredictionEtaSeconds(nextPrediction)
     : undefined;
   const matchingStop = nextPrediction?.stopId
     ? detail?.stops.find(
@@ -311,22 +580,42 @@ export function deriveTransitVehicleMapInfo(
   const nextStop = nextPrediction
     ? {
         ...nextPrediction,
-        stopName: nextPrediction.stopName || matchingStop?.name,
+        stopName: compactTransitStopName(
+          nextPrediction.stopName || matchingStop?.name || "待确认站点",
+        ),
       }
+    : undefined;
+  const predictedTerminal = findCurrentTripTerminal(vehicle, upcomingStops);
+  const estimatedPatternTerminal = pattern
+    ? estimateTransitPatternStopSequence(pattern, detail?.stops ?? []).at(-1)
     : undefined;
 
   return {
     vehicle,
+    vehicleLabel: transitVehicleLabel(vehicle),
     route,
     pattern,
     routeDirection: pattern?.direction,
-    routeDirectionLabel: transitDirectionLabel(pattern?.direction),
+    routeDirectionLabel: pattern
+      ? transitPatternDirectionLabel(pattern, detail?.stops ?? [])
+      : undefined,
     nextStop,
     etaSeconds,
     etaMinutes:
       etaSeconds === undefined ? undefined : Math.ceil(etaSeconds / 60),
     nearestStop: findNearestTransitStop(vehicle, detail),
-    destination: vehicle.destination || nextStop?.destination,
+    lastReportedStop: findLastReportedStop(vehicle, detail),
+    upcomingStops,
+    terminalStop: predictedTerminal
+      ? { id: predictedTerminal.id, name: predictedTerminal.name }
+      : estimatedPatternTerminal
+        ? { id: estimatedPatternTerminal.id, name: estimatedPatternTerminal.name }
+        : undefined,
+    destination:
+      vehicle.destination ||
+      nextStop?.destination ||
+      predictedTerminal?.name ||
+      estimatedPatternTerminal?.name,
   };
 }
 
@@ -335,4 +624,42 @@ export function deriveTransitVehicleMapInfoList(feed: TransitFeed) {
   return feed.vehicles.map((vehicle) =>
     deriveTransitVehicleMapInfo(vehicle, feed),
   );
+}
+
+/** Build the six-route list model independently from map visibility. */
+export function buildTransitRouteOverviews(
+  feed: TransitFeed,
+): TransitRouteOverview[] {
+  return feed.routes.map((route) => {
+    const detail = findRouteDetail(feed, route.code);
+    const vehicles = feed.vehicles
+      .filter(
+        (vehicle) => normalizeCode(vehicle.routeCode) === normalizeCode(route.code),
+      )
+      .map((vehicle) => deriveTransitVehicleMapInfo(vehicle, feed));
+    const patterns = (detail?.patterns ?? []).map((pattern) => {
+      const stops = estimateTransitPatternStopSequence(
+        pattern,
+        detail?.stops ?? [],
+      );
+      return {
+        pattern,
+        directionLabel: transitPatternDirectionLabel(
+          pattern,
+          detail?.stops ?? [],
+        ),
+        stops,
+        terminalStop: stops.at(-1),
+      };
+    });
+
+    return {
+      route,
+      detail,
+      patterns,
+      vehicles,
+      vehicleCount: vehicles.length,
+      operating: vehicles.length > 0,
+    };
+  });
 }
