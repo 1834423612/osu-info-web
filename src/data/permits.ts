@@ -27,6 +27,8 @@ export const OFFICIAL_PARKING_URLS = {
   garageAccess:
     "https://osu.campusparc.com/media/wnhdw3z5/garageaccesstablepy261027.pdf",
   offPeakRules: "https://osu.campusparc.com/off-peak-parking/",
+  visitorRates:
+    "https://osu.campusparc.com/find-parking/academic-visitor-parking/",
   parkingPolicies:
     "https://osu.campusparc.com/resources/parking-policies/",
   parkingNews: "https://osu.campusparc.com/about-us/news/",
@@ -35,6 +37,79 @@ export const OFFICIAL_PARKING_URLS = {
   accessiblePermits:
     "https://osu.campusparc.com/get-a-permit/ada-accessible-permits/",
 } as const;
+
+export const VISITOR_PARKING_RATES_2026_27 = {
+  verifiedOn: "2026-08-01",
+  sourceUrl: OFFICIAL_PARKING_URLS.visitorRates,
+  surfaceHourlyUsd: 3,
+  academicGarage: {
+    halfHourUsd: 3,
+    oneHourUsd: 6,
+    twoHoursUsd: 10,
+    threeHoursUsd: 14,
+    fourHoursUsd: 18,
+    dailyMaximumUsd: 20,
+    offPeakMaximumUsd: 12,
+  },
+  medicalCenterGarage: {
+    halfHourUsd: 2.25,
+    oneHourUsd: 4.75,
+    twoHoursUsd: 8,
+    threeHoursUsd: 11,
+    fourHoursUsd: 14.25,
+    dailyMaximumUsd: 15.75,
+    offPeakMaximumUsd: 9.5,
+  },
+  noteZh:
+    "车库费率每日午夜重置；off-peak 最高价仅适用于工作日 6 p.m.–午夜及周末。活动、医院验证和现场入口价格可能不同。",
+} as const;
+
+export type VisitorParkingCostEstimate = {
+  readonly hours: number;
+  readonly surfaceUsd: number;
+  readonly academicGarageUsd: number;
+  readonly medicalCenterGarageUsd: number;
+};
+
+function garageVisitorCost(
+  hours: number,
+  rates: {
+    readonly halfHourUsd: number;
+    readonly oneHourUsd: number;
+    readonly twoHoursUsd: number;
+    readonly threeHoursUsd: number;
+    readonly fourHoursUsd: number;
+    readonly dailyMaximumUsd: number;
+  },
+) {
+  if (hours <= 0.5) return rates.halfHourUsd;
+  if (hours <= 1) return rates.oneHourUsd;
+  if (hours <= 2) return rates.twoHoursUsd;
+  if (hours <= 3) return rates.threeHoursUsd;
+  if (hours <= 4) return rates.fourHoursUsd;
+  return rates.dailyMaximumUsd;
+}
+
+/** Published visitor-rate estimate for one same-day parking session. */
+export function estimateVisitorParkingCost(
+  requestedHours: number,
+): VisitorParkingCostEstimate {
+  const hours = Math.min(24, Math.max(0.5, requestedHours));
+  return {
+    hours,
+    surfaceUsd:
+      Math.round(hours * VISITOR_PARKING_RATES_2026_27.surfaceHourlyUsd * 100) /
+      100,
+    academicGarageUsd: garageVisitorCost(
+      hours,
+      VISITOR_PARKING_RATES_2026_27.academicGarage,
+    ),
+    medicalCenterGarageUsd: garageVisitorCost(
+      hours,
+      VISITOR_PARKING_RATES_2026_27.medicalCenterGarage,
+    ),
+  };
+}
 
 export const PERMIT_FACTS_DISCLAIMER_ZH =
   "本页仅概括一般规则。现场标识、车库入口提示、封路路障、赛事/活动方案及 CampusParc 当日通知始终优先。";
@@ -75,6 +150,7 @@ export type GarageAccessMode =
 
 export type OvernightAccessMode =
   | "not-included"
+  | "surface-permitted"
   | "designated-garage-levels"
   | "assigned-garage"
   | "kinnear-only"
@@ -97,6 +173,8 @@ export interface PermitAccessProfile {
   };
   readonly overnight: {
     readonly mode: OvernightAccessMode;
+    /** Formal weekday 3–5 a.m. surface access; garage rules remain separate. */
+    readonly surface: SurfaceScope | "none";
     readonly detailZh: string;
   };
 }
@@ -123,21 +201,24 @@ const ALL_A_SURFACE: readonly SurfaceZone[] = [
   "WA",
   "WB",
   "WC",
+  "WCO",
 ];
 
 const B_AND_LOWER_SURFACE: readonly SurfaceZone[] = [
   "B",
   "C",
   "CX",
-  "WA",
   "WB",
   "WC",
+  "WCO",
 ];
 
-const C_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["C", "CX", "WC"];
-const WA_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WA", "WB", "WC", "CX"];
-const WB_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WB", "WC", "CX"];
-const WC_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WC", "CX"];
+const C_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["C", "CX", "WC", "WCO"];
+const WA_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WA", "WB", "WC", "WCO"];
+const CX_WEST_SURFACE: readonly SurfaceZone[] = ["CX", "WA", "WB", "WC", "WCO"];
+const CXC_SURFACE: readonly SurfaceZone[] = ["CX", "WC", "WCO"];
+const WB_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WB", "WC", "WCO"];
+const WC_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WC", "WCO"];
 
 const noGarage = {
   mode: "none",
@@ -146,9 +227,13 @@ const noGarage = {
 
 const noOvernight = {
   mode: "not-included",
+  surface: "none",
   detailZh:
-    "不含 3–5 a.m. 夜间存放权限；周末或非高峰可进入，不等于可以在夜间时段留车。",
+    "不含工作日 3–5 a.m. 夜间存放；须在 3 a.m. 前离校，或仅使用官方 commuter late-night 指定区临停。周末连续非高峰规则另计。",
 } as const;
+
+const employeeSurfaceOvernight = (surface: SurfaceScope, detailZh: string) =>
+  ({ mode: "surface-permitted", surface, detailZh }) as const;
 
 const remoteHolidayNote =
   "大学官方假日通常可按公告使用中校区 A、B、C、CX 非保留地面位；车库范围仍取决于证件权限与入口提示。";
@@ -165,7 +250,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 1518, monthlyUsd: 126.5, permitYear: "2026–27" },
     access: {
       peakSurface: ALL_A_SURFACE,
-      offPeakSurface: ALL_A_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "all-permit-garages",
         detailZh:
@@ -173,8 +258,9 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       },
       overnight: {
         mode: "designated-garage-levels",
+        surface: ALL_A_SURFACE,
         detailZh:
-          "夜间/长期停车仅限官方指定车库的指定高层区域；超过 72 小时应事先联系 CampusParc。",
+          "工作日 3–5 a.m. 可使用一般非保留地面位；车库夜间/长期停车仅限官方指定高层，部分车库须 8 a.m. 前驶离。",
       },
     },
     officialUrl:
@@ -193,7 +279,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 1518, monthlyUsd: 126.5, permitYear: "2026–27" },
     access: {
       peakSurface: ALL_A_SURFACE,
-      offPeakSurface: ALL_A_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "selected-plus-off-peak",
         detailZh:
@@ -201,8 +287,9 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       },
       overnight: {
         mode: "assigned-garage",
+        surface: ALL_A_SURFACE,
         detailZh:
-          "11th Avenue Garage 的夜间/长期停车应使用官方指定楼层；其他车库不可由非高峰权限推定。",
+          "工作日 3–5 a.m. 可使用一般非保留地面位；11th Avenue Garage 仅使用指定夜间楼层，其他车库不可由非高峰权限推定。",
       },
     },
     officialUrl:
@@ -227,7 +314,10 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
         detailZh:
           "周末及大学官方假日可进入 9th Avenue East/West Garage；周末窗口周五 2 p.m. 开始。",
       },
-      overnight: noOvernight,
+      overnight: employeeSurfaceOvernight(
+        CX_WEST_SURFACE,
+        "工作日 3–5 a.m. 可使用 CX / WA / WB / WC / WCO 非保留地面位；车库仅按周末/假日窗口开放。",
+      ),
     },
     officialUrl: "https://osu.campusparc.com/get-a-permit/wa-west-campus/",
     notesZh: [remoteHolidayNote],
@@ -242,7 +332,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     descriptionZh: "西校区 Park & Ride，并在非高峰时段提供一般许可车库权限。",
     price: { annualUsd: 569.76, monthlyUsd: 47.48, permitYear: "2026–27" },
     access: {
-      peakSurface: WA_AND_LOWER_SURFACE,
+      peakSurface: CX_WEST_SURFACE,
       offPeakSurface: "all-unrestricted",
       garage: {
         mode: "off-peak",
@@ -251,8 +341,9 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       },
       overnight: {
         mode: "verify-garage-table",
+        surface: CX_WEST_SURFACE,
         detailZh:
-          "3–5 a.m. 是否可留车及是否须 8 a.m. 前驶离，必须按具体车库的官方 access table/入口提示核对。",
+          "工作日 3–5 a.m. 可使用 CX / WA / WB / WC / WCO 非保留地面位；车库为 exit-only 并须 8 a.m. 前驶离，具体入口以官方表格为准。",
       },
     },
     officialUrl:
@@ -271,14 +362,17 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       "Buckeye Lots Park & Ride；可接驳 Buckeye Express，非高峰可用更多非保留地面位。",
     price: { annualUsd: 393.96, monthlyUsd: 32.83, permitYear: "2026–27" },
     access: {
-      peakSurface: ["CX"],
+      peakSurface: CX_WEST_SURFACE,
       offPeakSurface: "all-unrestricted",
       garage: {
         mode: "weekend-ninth",
         detailZh:
           "周末及大学官方假日可进入 9th Avenue East/West Garage；周末窗口周五 2 p.m. 开始。",
       },
-      overnight: noOvernight,
+      overnight: employeeSurfaceOvernight(
+        CX_WEST_SURFACE,
+        "工作日 3–5 a.m. 可使用 CX / WA / WB / WC / WCO 非保留地面位；车库仅按周末/假日窗口开放。",
+      ),
     },
     officialUrl: "https://osu.campusparc.com/get-a-permit/cxs-buckeye-lot/",
     notesZh: [remoteHolidayNote],
@@ -295,9 +389,12 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 783, monthlyUsd: 65.25, permitYear: "2026–27" },
     access: {
       peakSurface: B_AND_LOWER_SURFACE,
-      offPeakSurface: B_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: noGarage,
-      overnight: noOvernight,
+      overnight: employeeSurfaceOvernight(
+        B_AND_LOWER_SURFACE,
+        "工作日 3–5 a.m. 可使用 B / C / CX / WB / WC / WCO 非保留地面位；不含普通车库夜间权限。",
+      ),
     },
     officialUrl: "https://osu.campusparc.com/get-a-permit/b-central-campus/",
   },
@@ -313,15 +410,16 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 999.96, monthlyUsd: 83.33, permitYear: "2026–27" },
     access: {
       peakSurface: B_AND_LOWER_SURFACE,
-      offPeakSurface: B_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "off-peak",
         detailZh: "非高峰可进入官方 garage access table 列出的许可车库。",
       },
       overnight: {
         mode: "verify-garage-table",
+        surface: B_AND_LOWER_SURFACE,
         detailZh:
-          "3–5 a.m. 是否可留车及是否须 8 a.m. 前驶离，必须按具体车库的官方 access table/入口提示核对。",
+          "工作日 3–5 a.m. 可使用 B / C / CX / WB / WC / WCO 非保留地面位；车库为 exit-only 并须 8 a.m. 前驶离。",
       },
     },
     officialUrl:
@@ -340,7 +438,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 1415.52, monthlyUsd: 117.96, permitYear: "2026–27" },
     access: {
       peakSurface: B_AND_LOWER_SURFACE,
-      offPeakSurface: B_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "selected-all-times",
         detailZh:
@@ -348,8 +446,9 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       },
       overnight: {
         mode: "assigned-garage",
+        surface: B_AND_LOWER_SURFACE,
         detailZh:
-          "仅在所购 BG 版本对应且官方允许的车库/楼层留车；访客优先车库可能另有驶离时限。",
+          "工作日 3–5 a.m. 可使用 B / C / CX / WB / WC / WCO 非保留地面位；车库仅限所购 BG 后缀对应且官方允许的车库/楼层。",
       },
     },
     officialUrl:
@@ -375,7 +474,10 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
         detailZh:
           "周末及大学官方假日可进入 9th Avenue East/West Garage；周末窗口周五 2 p.m. 开始。",
       },
-      overnight: noOvernight,
+      overnight: employeeSurfaceOvernight(
+        WB_AND_LOWER_SURFACE,
+        "工作日 3–5 a.m. 可使用 WB / WC / WCO 非保留地面位；车库仅按周末/假日窗口开放。",
+      ),
     },
     officialUrl: "https://osu.campusparc.com/get-a-permit/wb-west-campus/",
     notesZh: [remoteHolidayNote],
@@ -391,7 +493,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 530.04, monthlyUsd: 44.17, permitYear: "2026–27" },
     access: {
       peakSurface: C_AND_LOWER_SURFACE,
-      offPeakSurface: C_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: noGarage,
       overnight: noOvernight,
     },
@@ -409,7 +511,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 921.48, monthlyUsd: 76.79, permitYear: "2026–27" },
     access: {
       peakSurface: C_AND_LOWER_SURFACE,
-      offPeakSurface: C_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "off-peak",
         detailZh: "非高峰可进入官方 garage access table 列出的许可车库。",
@@ -432,7 +534,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 1335.96, monthlyUsd: 111.33, permitYear: "2026–27" },
     access: {
       peakSurface: C_AND_LOWER_SURFACE,
-      offPeakSurface: C_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "selected-all-times",
         detailZh:
@@ -440,8 +542,9 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       },
       overnight: {
         mode: "assigned-garage",
+        surface: ["WCO"],
         detailZh:
-          "仅在对应车库的指定夜间楼层停车，例如 11th Level 3+、Union North 4S+、Lane 5+、Arps/Gateway 4+；以当期表格为准。",
+          "地面仅可用 WCO；车库仅限对应 CG 后缀及指定夜间楼层，例如 11th Level 3+、Union North 4S+、Lane 5+、Arps/Gateway 4+。",
       },
     },
     officialUrl:
@@ -459,7 +562,7 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
       "Buckeye Lots Park & Ride，可接驳 Buckeye Express；非高峰可用更多非保留地面位。",
     price: { annualUsd: 262.8, monthlyUsd: 21.9, permitYear: "2026–27" },
     access: {
-      peakSurface: ["CX"],
+      peakSurface: CXC_SURFACE,
       offPeakSurface: "all-unrestricted",
       garage: noGarage,
       overnight: noOvernight,
@@ -519,11 +622,12 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     descriptionZh: "包含 1121 Kinnear Road Lot 指定区域的夜间存放权限。",
     price: { annualUsd: 765, monthlyUsd: 63.75, permitYear: "2026–27" },
     access: {
-      peakSurface: ["WCO"],
+      peakSurface: WC_AND_LOWER_SURFACE,
       offPeakSurface: "all-unrestricted",
       garage: noGarage,
       overnight: {
         mode: "kinnear-only",
+        surface: ["WCO"],
         detailZh:
           "3–5 a.m. 夜间存放仅限 1121 Kinnear Road Lot 的 WCO 指定区域，不扩展到其他地面位或车库。",
       },
@@ -544,15 +648,16 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 393.96, monthlyUsd: 32.83, permitYear: "2026–27" },
     access: {
       peakSurface: ALL_A_SURFACE,
-      offPeakSurface: ALL_A_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "all-permit-garages",
         detailZh: "A 等效的一般许可车库权限；访客专用与受限区域除外。",
       },
       overnight: {
         mode: "designated-garage-levels",
+        surface: ALL_A_SURFACE,
         detailZh:
-          "夜间/长期停车仅限官方指定车库楼层；超过 72 小时应事先联系 CampusParc。",
+          "工作日 3–5 a.m. 可使用一般非保留地面位；车库夜间/长期停车仅限官方指定楼层。",
       },
     },
     officialUrl:
@@ -569,15 +674,16 @@ export const PARKING_PERMITS: readonly PermitDefinition[] = [
     price: { annualUsd: 542.28, monthlyUsd: 45.19, permitYear: "2026–27" },
     access: {
       peakSurface: ALL_A_SURFACE,
-      offPeakSurface: ALL_A_SURFACE,
+      offPeakSurface: "all-unrestricted",
       garage: {
         mode: "all-permit-garages",
         detailZh: "A 等效的一般许可车库权限；访客专用与受限区域除外。",
       },
       overnight: {
         mode: "designated-garage-levels",
+        surface: ALL_A_SURFACE,
         detailZh:
-          "夜间/长期停车仅限官方指定车库楼层；超过 72 小时应事先联系 CampusParc。",
+          "工作日 3–5 a.m. 可使用一般非保留地面位；车库夜间/长期停车仅限官方指定楼层。",
       },
     },
     officialUrl:
@@ -885,8 +991,9 @@ function getHolidayParkingWindow(
  * Classifies one instant using Columbus campus time, independently of the
  * browser or server time zone.
  *
- * Flags may overlap: for example, 3–5 a.m. on Saturday is both weekend
- * off-peak and overnight. `primary` chooses the most useful UI label.
+ * Weekend off-peak is continuous from Friday 4 p.m. through Monday 3 a.m.;
+ * Saturday/Sunday 3–5 a.m. therefore stays off-peak rather than becoming the
+ * separate weekday overnight-storage period.
  */
 export function classifyCampusParkingTime(
   at: InstantInput,
@@ -894,7 +1001,9 @@ export function classifyCampusParkingTime(
   const campus = getCampusDateTimeParts(at);
   const isWeekend = campus.weekday === 0 || campus.weekday === 6;
   const isOvernight =
-    campus.minuteOfDay >= 3 * 60 && campus.minuteOfDay < 5 * 60;
+    !isWeekend &&
+    campus.minuteOfDay >= 3 * 60 &&
+    campus.minuteOfDay < 5 * 60;
   const holidayWindow = getHolidayParkingWindow(campus);
   const isHoliday = holidayWindow !== null;
   const isOffPeak =
@@ -964,6 +1073,91 @@ export function isWithinPermitYear2026_27(at: InstantInput): boolean {
     dateKey >= PERMIT_YEAR_2026_27.startsOn &&
     dateKey <= PERMIT_YEAR_2026_27.endsOn
   );
+}
+
+export interface PermitPlanningNotice {
+  readonly tone: "info" | "warning" | "night";
+  readonly titleZh: string;
+  readonly detailZh: string;
+  readonly minutesUntilChange?: number;
+}
+
+function scopeCoversEverySurfaceZone(scope: SurfaceScope) {
+  return (
+    scope === "all-unrestricted" ||
+    new Set(scope).size >= ALL_A_SURFACE.length
+  );
+}
+
+function formatCountdownZh(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (hours === 0) return `${remainder} 分钟`;
+  if (remainder === 0) return `${hours} 小时`;
+  return `${hours} 小时 ${remainder} 分钟`;
+}
+
+/** A compact next-window hint shared by the dashboard and permit picker. */
+export function getPermitPlanningNotice(
+  permitCode: PermitCode,
+  at: InstantInput,
+): PermitPlanningNotice | undefined {
+  const permit = getPermitByCode(permitCode);
+  const time = classifyCampusParkingTime(at);
+
+  if (time.primary === "overnight") {
+    return permit.access.overnight.mode === "not-included"
+      ? {
+          tone: "warning",
+          titleZh: "当前证件不含工作日夜间存放",
+          detailZh:
+            "3–5 a.m. 仅可使用官方 late-night 指定区临停，或改用明确支持 overnight 的按小时位置/访客车库。",
+        }
+      : {
+          tone: "night",
+          titleZh: "当前处于工作日 3–5 a.m. 夜间窗口",
+          detailZh: permit.access.overnight.detailZh,
+        };
+  }
+
+  const expandsAtOffPeak =
+    permit.access.offPeakSurface === "all-unrestricted" &&
+    !scopeCoversEverySurfaceZone(permit.access.peakSurface);
+  if (!expandsAtOffPeak) return undefined;
+
+  if (time.isHoliday) {
+    return {
+      tone: "info",
+      titleZh: "假日扩展权限已生效",
+      detailZh:
+        "一般非保留地面位按假日窗口开放至次日 3 a.m.；活动安排与现场标牌仍优先。",
+    };
+  }
+  if (time.isWeekend) {
+    return {
+      tone: "info",
+      titleZh: "周末扩展权限已生效",
+      detailZh:
+        "一般非保留地面位从周五 4 p.m. 连续开放至周一 3 a.m.，可提前选择中校区位置。",
+    };
+  }
+  if (time.campus.minuteOfDay >= 16 * 60 || time.campus.minuteOfDay < 3 * 60) {
+    return {
+      tone: "info",
+      titleZh: "4 p.m. 后扩展权限已生效",
+      detailZh:
+        "当前可使用 A / B / C / CX / WA / WB / WC / WCO 一般非保留地面位，工作日窗口至 3 a.m.。",
+    };
+  }
+
+  const minutesUntilChange = 16 * 60 - time.campus.minuteOfDay;
+  return {
+    tone: minutesUntilChange <= 120 ? "warning" : "info",
+    titleZh: `距地面权限扩展还有 ${formatCountdownZh(minutesUntilChange)}`,
+    detailZh:
+      "到 4 p.m. 后可使用所有一般非保留地面位；现在即可在地图查看 A / B / C / CX / WA / WB / WC / WCO 位置做规划。",
+    minutesUntilChange,
+  };
 }
 
 export interface ActiveParkingNotice {
@@ -1099,7 +1293,8 @@ export function getCurrentAccessSummary(
     : time.primary === "overnight" && !overnightIncluded
       ? "not-included"
       : time.primary === "holiday" ||
-          permit.access.overnight.mode === "verify-garage-table"
+          (time.primary === "overnight" &&
+            permit.access.overnight.mode === "verify-garage-table")
         ? "check-required"
         : "allowed-with-conditions";
 

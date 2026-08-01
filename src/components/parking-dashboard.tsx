@@ -15,7 +15,9 @@ import {
 import { TimeDisplay } from "@/components/time-display";
 import { TransitControl } from "@/components/transit-control";
 import {
+  estimateVisitorParkingCost,
   getCurrentAccessSummary,
+  getPermitPlanningNotice,
   isPermitCode,
   OFFICIAL_PARKING_URLS,
 } from "@/data/permits";
@@ -210,6 +212,17 @@ export function ParkingDashboard() {
   );
 
   const permitLabel = getSelectedPermitLabel(preferences.permitCode);
+  const permitPlanningNotice = useMemo(
+    () =>
+      isPermitCode(preferences.permitCode)
+        ? getPermitPlanningNotice(preferences.permitCode, now)
+        : undefined,
+    [now, preferences.permitCode],
+  );
+  const twoHourNightCost = useMemo(
+    () => estimateVisitorParkingCost(2),
+    [],
+  );
 
   const permitZones = useMemo(
     () => (permitSummary ? resolvePermitZones(permitSummary) : []),
@@ -848,6 +861,38 @@ export function ParkingDashboard() {
                 </div>
                 <p>{permitSummary.surfaceZh}</p>
                 <p>{permitSummary.garageZh}</p>
+                {permitPlanningNotice && (
+                  <button
+                    type="button"
+                    className={cn(
+                      "insight-planning-notice",
+                      `is-${permitPlanningNotice.tone}`,
+                    )}
+                    onClick={() => setPermitOpen(true)}
+                  >
+                    <Icon
+                      icon={
+                        permitPlanningNotice.tone === "night"
+                          ? "solar:moon-stars-bold-duotone"
+                          : "solar:clock-circle-bold-duotone"
+                      }
+                    />
+                    <span>
+                      <strong>{permitPlanningNotice.titleZh}</strong>
+                      <small>{permitPlanningNotice.detailZh}</small>
+                    </span>
+                    <Icon icon="solar:alt-arrow-right-linear" />
+                  </button>
+                )}
+                {permitSummary.status === "not-included" && (
+                  <div className="insight-night-cost">
+                    <span>工作日 3–5 a.m. · 2 小时参考</span>
+                    <b>地面 ${twoHourNightCost.surfaceUsd.toFixed(0)}</b>
+                    <b>
+                      Academic ${twoHourNightCost.academicGarageUsd.toFixed(0)}
+                    </b>
+                  </div>
+                )}
               </>
             ) : (
               <div className="insight-empty">

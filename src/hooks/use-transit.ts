@@ -11,6 +11,7 @@ import type {
 } from "@/types/transit";
 
 const POLL_INTERVAL = 15_000;
+const DETAIL_REFRESH_INTERVAL = 10 * 60_000;
 const DETAIL_RETRY_DELAYS = [4_000, 12_000] as const;
 
 type RouteResponse = {
@@ -117,13 +118,6 @@ export function useTransit(enabled: boolean) {
     );
     const missing = activeRoutes.filter((code) => !detailsRef.current[code]);
 
-    if (!missing.length) {
-      return () => {
-        controller.abort();
-        window.clearTimeout(resetErrorTimer);
-      };
-    }
-
     const loadDetails = async (codes: string[], attempt: number) => {
       const results = await Promise.allSettled(
         codes.map(async (code) => {
@@ -192,11 +186,17 @@ export function useTransit(enabled: boolean) {
       setRouteDetailError(`部分 CABS 线路图暂不可用（${failed.join(" / ")}）`);
     };
 
-    void loadDetails(missing, 0);
+    if (missing.length) void loadDetails(missing, 0);
+    const refreshInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadDetails(activeRoutes, 0);
+      }
+    }, DETAIL_REFRESH_INTERVAL);
 
     return () => {
       controller.abort();
       window.clearTimeout(resetErrorTimer);
+      window.clearInterval(refreshInterval);
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [activeKey, activeRoutes, enabled]);

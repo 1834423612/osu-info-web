@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
 import type { TransitFeed } from "@/types/transit";
-import type { CampusMapProps, CampusMapVariant } from "./campus-map";
+import type {
+  CampusMapProps,
+  CampusMapVariant,
+  ParkingMapGroupId,
+} from "./campus-map";
 
 const CampusMap = dynamic<CampusMapProps>(() => import("./campus-map"), {
   ssr: false,
@@ -66,6 +70,8 @@ export function CampusParkingMap({
     layerKey: string;
     zones: string[];
   }>({ layerKey, zones: [] });
+  const [expandedParkingGroup, setExpandedParkingGroup] =
+    useState<ParkingMapGroupId>();
   const expandedZones = expansion.layerKey === layerKey ? expansion.zones : [];
 
   const expandedSet = new Set(expandedZones);
@@ -100,6 +106,12 @@ export function CampusParkingMap({
         showPermitAreas={permitLayer.visible}
         expandedPermitZones={expandedZones}
         onTogglePermitZone={toggleZone}
+        expandedParkingGroup={expandedParkingGroup}
+        onToggleParkingGroup={(group) =>
+          setExpandedParkingGroup((current) =>
+            current === group ? undefined : group,
+          )
+        }
         className="h-full w-full"
       />
 
@@ -112,22 +124,32 @@ export function CampusParkingMap({
             } as React.CSSProperties
           }
         >
-          <span className="permit-map-summary__ticket">
-            <Icon icon="solar:ticket-bold-duotone" />
-            <b>{permitLayer.permitCode}</b>
-          </span>
-          <span className="permit-map-summary__copy">
-            <small>当前可用地面区域</small>
-            <strong>{zones.join(" / ")}</strong>
-            <span className="permit-map-summary__colors" aria-hidden="true">
-              {zones.map((zone) => (
-                <i
-                  key={zone}
-                  style={{ background: getPermitZoneMeta(zone)?.color }}
-                />
-              ))}
+          <button
+            type="button"
+            className="permit-map-summary__overview"
+            onClick={() =>
+              setExpansion({ layerKey, zones: allExpanded ? [] : zones })
+            }
+            aria-pressed={allExpanded}
+            title={allExpanded ? "收起具体停车区域" : "展开全部具体停车区域"}
+          >
+            <span className="permit-map-summary__ticket">
+              <Icon icon="solar:ticket-bold-duotone" />
+              <b>{permitLayer.permitCode}</b>
             </span>
-          </span>
+            <span className="permit-map-summary__copy">
+              <small>当前可用地面区域</small>
+              <strong>{zones.join(" / ")}</strong>
+              <span className="permit-map-summary__colors" aria-hidden="true">
+                {zones.map((zone) => (
+                  <i
+                    key={zone}
+                    style={{ background: getPermitZoneMeta(zone)?.color }}
+                  />
+                ))}
+              </span>
+            </span>
+          </button>
           <button
             type="button"
             onClick={() =>

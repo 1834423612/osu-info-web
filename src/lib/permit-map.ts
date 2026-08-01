@@ -1,5 +1,6 @@
 import type {
   CurrentAccessSummary,
+  SurfaceScope,
   SurfaceZone,
 } from "@/data/permits";
 
@@ -69,6 +70,7 @@ const ALL_UNRESTRICTED_ZONES: readonly SurfaceZone[] = [
   "WA",
   "WB",
   "WC",
+  "WCO",
 ];
 
 const HOLIDAY_REMOTE_PERMITS = new Set([
@@ -81,6 +83,12 @@ const HOLIDAY_REMOTE_PERMITS = new Set([
   "WCE",
   "WCO",
 ]);
+
+export function resolveSurfaceScopeZones(scope: SurfaceScope): SurfaceZone[] {
+  return scope === "all-unrestricted"
+    ? [...ALL_UNRESTRICTED_ZONES]
+    : Array.from(new Set(scope));
+}
 
 export function getPermitZoneMeta(
   code: string | null | undefined,
@@ -99,7 +107,9 @@ export function resolvePermitZones(
   const { permit, time } = summary;
 
   if (time.primary === "overnight") {
-    return permit.code === "WCO" ? ["WCO"] : [];
+    const overnightScope = permit.access.overnight.surface;
+    if (overnightScope === "none") return [];
+    return resolveSurfaceScopeZones(overnightScope);
   }
 
   if (time.isHoliday && HOLIDAY_REMOTE_PERMITS.has(permit.code)) {
@@ -110,7 +120,5 @@ export function resolvePermitZones(
     ? permit.access.offPeakSurface
     : permit.access.peakSurface;
 
-  return scope === "all-unrestricted"
-    ? [...ALL_UNRESTRICTED_ZONES]
-    : Array.from(new Set(scope));
+  return resolveSurfaceScopeZones(scope);
 }

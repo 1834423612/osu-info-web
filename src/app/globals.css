@@ -40,6 +40,7 @@
 }
 
 html {
+  overflow-x: clip;
   background: var(--background);
   scroll-behavior: smooth;
 }
@@ -1509,7 +1510,7 @@ button.metric-card:hover {
   box-shadow: 0 0 0 1px rgb(18 20 22 / 7%);
 }
 
-.permit-map-summary > button {
+.permit-map-summary > button:not(.permit-map-summary__overview) {
   display: grid;
   min-width: 51px;
   place-items: center;
@@ -1524,14 +1525,32 @@ button.metric-card:hover {
   font-weight: 800;
 }
 
-.permit-map-summary > button:hover,
-.permit-map-summary > button[aria-pressed="true"] {
+.permit-map-summary > button:not(.permit-map-summary__overview):hover,
+.permit-map-summary > button:not(.permit-map-summary__overview)[aria-pressed="true"] {
   background: color-mix(in srgb, var(--permit-zone-color) 14%, #fff);
 }
 
-.permit-map-summary > button svg {
+.permit-map-summary > button:not(.permit-map-summary__overview) svg {
   width: 17px;
   height: 17px;
+}
+
+.permit-map-summary__overview {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: stretch;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.permit-map-summary__overview:hover .permit-map-summary__copy,
+.permit-map-summary__overview[aria-pressed="true"] .permit-map-summary__copy {
+  background: color-mix(in srgb, var(--permit-zone-color) 7%, transparent);
 }
 
 @keyframes spin {
@@ -1822,6 +1841,10 @@ button.metric-card:hover {
   line-height: 1.45;
 }
 
+.campus-parking-map .maplibregl-popup {
+  z-index: 40;
+}
+
 .map-svg-overlay {
   position: absolute;
   inset: 0;
@@ -1857,7 +1880,7 @@ button.metric-card:hover {
   cursor: pointer;
   pointer-events: auto;
   text-align: left;
-  transition: transform 160ms, box-shadow 160ms;
+  transition: box-shadow 160ms, filter 160ms, scale 160ms;
 }
 
 .permit-ticket-map-marker:hover,
@@ -1866,7 +1889,7 @@ button.metric-card:hover {
   box-shadow:
     0 12px 28px -8px rgb(10 15 20 / 54%),
     0 0 0 3px color-mix(in srgb, var(--permit-zone-color) 22%, transparent);
-  transform: scale(1.06);
+  scale: 1.06;
 }
 
 .permit-ticket-map-marker__code {
@@ -1969,13 +1992,15 @@ button.metric-card:hover {
 @keyframes marker-pop {
   from {
     opacity: 0;
-    transform: translateY(5px) scale(0.9);
+    scale: 0.9;
+    translate: 0 5px;
   }
 }
 
 .permit-lot-map-marker:hover {
   z-index: 10;
-  transform: translateY(-2px) scale(1.04);
+  scale: 1.04;
+  translate: 0 -2px;
 }
 
 .permit-lot-map-marker b {
@@ -2007,27 +2032,29 @@ button.metric-card:hover {
   border: 2px solid #fff;
   border-radius: 11px 11px 11px 3px;
   padding: 3px 7px 3px 4px;
-  color: #fff;
-  background: currentColor;
+  color: var(--parking-marker-color, #475569);
+  background: var(--parking-marker-background, var(--parking-marker-color, #475569));
   box-shadow:
     0 8px 18px -6px rgb(10 15 20 / 48%),
     0 0 0 1px rgb(10 15 20 / 10%);
   cursor: pointer;
-  transform: rotate(-2deg);
+  rotate: -2deg;
   transition:
-    transform 150ms,
-    filter 150ms;
+    filter 150ms,
+    scale 150ms,
+    translate 150ms;
 }
 
 .parking-map-marker > * {
-  transform: rotate(2deg);
+  rotate: 2deg;
 }
 
 .parking-map-marker:hover,
 .parking-map-marker.is-selected {
   z-index: 10;
   filter: saturate(1.15);
-  transform: rotate(-2deg) scale(1.12) translateY(-2px);
+  scale: 1.12;
+  translate: 0 -2px;
 }
 
 .parking-map-marker.is-selected {
@@ -2036,21 +2063,34 @@ button.metric-card:hover {
     0 0 0 4px rgb(255 255 255 / 56%);
 }
 
-.parking-map-marker.level-open {
-  color: #178154 !important;
+.parking-map-marker::after {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--occupancy-color, #178154);
+  box-shadow: 0 2px 5px rgb(10 15 20 / 22%);
+  content: "";
 }
 
-.parking-map-marker.level-steady {
-  color: #937014 !important;
+.parking-map-marker.occupancy-open {
+  --occupancy-color: #178154;
 }
 
-.parking-map-marker.level-busy {
-  color: #bd6c0d !important;
+.parking-map-marker.occupancy-steady {
+  --occupancy-color: #937014;
 }
 
-.parking-map-marker.level-critical,
+.parking-map-marker.occupancy-busy {
+  --occupancy-color: #bd6c0d;
+}
+
+.parking-map-marker.occupancy-critical,
 .parking-map-marker.is-closed {
-  color: #ba2a24 !important;
+  --occupancy-color: #ba2a24;
 }
 
 .parking-map-marker__icon {
@@ -2079,13 +2119,13 @@ button.metric-card:hover {
 .transit-map-marker {
   position: relative;
   z-index: 7;
-  display: flex;
-  height: 34px;
-  align-items: center;
-  gap: 5px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
   border: 2px solid #fff;
-  border-radius: 12px 12px 12px 3px;
-  padding: 3px 8px 3px 4px;
+  border-radius: 12px 12px 12px 4px;
+  padding: 0;
   color: #fff;
   background: var(--route-color);
   box-shadow:
@@ -2113,8 +2153,8 @@ button.metric-card:hover {
 
 .transit-map-marker__bus {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 27px;
+  height: 27px;
   place-items: center;
   border-radius: 8px;
   color: var(--route-color);
@@ -2128,7 +2168,20 @@ button.metric-card:hover {
 }
 
 .transit-map-marker b {
-  font-size: 8px;
+  position: absolute;
+  right: -11px;
+  bottom: -7px;
+  display: grid;
+  min-width: 23px;
+  height: 15px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  padding: 0 3px;
+  color: var(--route-color);
+  background: #fff;
+  box-shadow: 0 2px 7px rgb(10 15 20 / 24%);
+  font-size: 7px;
   font-weight: 900;
   letter-spacing: 0.02em;
 }
@@ -2136,7 +2189,7 @@ button.metric-card:hover {
 .transit-map-marker__direction {
   position: absolute;
   top: -10px;
-  left: 9px;
+  left: -8px;
   display: grid;
   width: 14px;
   height: 14px;
@@ -2258,6 +2311,64 @@ button.metric-card:hover {
   font-weight: 750;
 }
 
+.map-info-popup--transit {
+  min-width: 248px;
+  gap: 7px;
+}
+
+.transit-popup-trip {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #dce3e8;
+  border-radius: 10px;
+  background: #f8fafb;
+}
+
+.transit-popup-trip > div {
+  display: flex;
+  min-height: 39px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #e5eaee;
+  padding: 6px 8px;
+}
+
+.transit-popup-trip > div:last-child {
+  border-bottom: 0;
+}
+
+.transit-popup-trip > div.is-next {
+  color: #0f5f91;
+  background: #eaf5fb;
+}
+
+.transit-popup-trip span,
+.transit-popup-trip small,
+.transit-popup-trip strong {
+  display: block;
+}
+
+.transit-popup-trip small {
+  color: var(--muted);
+  font-size: 6.5px;
+}
+
+.transit-popup-trip strong {
+  margin-top: 2px;
+  font-size: 8px;
+}
+
+.transit-popup-trip > div > b {
+  flex: 0 0 auto;
+  border-radius: 6px;
+  padding: 3px 5px;
+  color: inherit;
+  background: rgb(255 255 255 / 75%);
+  font-size: 6.5px;
+}
+
 .ev-map-marker {
   z-index: 7;
   display: grid;
@@ -2272,27 +2383,28 @@ button.metric-card:hover {
     0 8px 18px -5px rgb(10 15 20 / 48%),
     0 0 0 1px rgb(10 15 20 / 10%);
   cursor: pointer;
-  transform: rotate(-12deg);
-  transition: transform 150ms, filter 150ms;
+  rotate: -12deg;
+  transition: filter 150ms, scale 150ms, translate 150ms;
 }
 
 .ev-map-marker:hover {
   z-index: 10;
   filter: saturate(1.12);
-  transform: rotate(-12deg) translateY(-2px) scale(1.1);
+  scale: 1.1;
+  translate: 0 -2px;
 }
 
 .ev-map-marker svg {
   width: 15px;
   height: 15px;
   fill: currentColor;
-  transform: rotate(12deg);
+  rotate: 12deg;
 }
 
 .ev-map-marker b {
   font-size: 13px;
   font-weight: 900;
-  transform: rotate(12deg);
+  rotate: 12deg;
 }
 
 .ev-map-marker.is-tesla {
@@ -2510,6 +2622,101 @@ button.metric-card:hover {
   color: var(--ink-soft);
   font-size: 9px;
   line-height: 1.55;
+}
+
+.insight-planning-notice {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  border: 1px solid #cfddea;
+  border-radius: 11px;
+  padding: 8px;
+  color: #225b86;
+  background: #f0f7fc;
+  cursor: pointer;
+  text-align: left;
+}
+
+.insight-planning-notice > svg:first-child {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.insight-planning-notice > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.insight-planning-notice strong,
+.insight-planning-notice small {
+  display: block;
+}
+
+.insight-planning-notice strong {
+  font-size: 7.5px;
+}
+
+.insight-planning-notice small {
+  display: -webkit-box;
+  margin-top: 2px;
+  overflow: hidden;
+  color: #4a708c;
+  font-size: 6.5px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.insight-planning-notice > svg:last-child {
+  width: 13px;
+  flex: 0 0 auto;
+}
+
+.insight-planning-notice.is-warning {
+  border-color: #ead7a6;
+  color: #8a5909;
+  background: #fff8e7;
+}
+
+.insight-planning-notice.is-warning small {
+  color: #816a3f;
+}
+
+.insight-planning-notice.is-night {
+  border-color: #d9d4f2;
+  color: #5b42a5;
+  background: #f5f2ff;
+}
+
+.insight-planning-notice.is-night small {
+  color: #6d6192;
+}
+
+.insight-night-cost {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.insight-night-cost span,
+.insight-night-cost b {
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 6.5px;
+}
+
+.insight-night-cost span {
+  color: var(--muted);
+  background: var(--surface-muted);
+}
+
+.insight-night-cost b {
+  color: #5b42a5;
+  background: #f1edff;
 }
 
 .insight-card__fine-print {
@@ -3294,12 +3501,12 @@ button.metric-card:hover {
 .permit-choice {
   display: flex;
   width: 100%;
-  min-height: 45px;
+  min-height: 52px;
   align-items: center;
   gap: 9px;
   border: 1px solid transparent;
-  border-radius: 11px;
-  padding: 6px 8px;
+  border-radius: 12px;
+  padding: 6px 8px 6px 6px;
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -3309,6 +3516,7 @@ button.metric-card:hover {
 .permit-choice:hover {
   color: var(--ink);
   background: #fff;
+  box-shadow: 0 7px 18px -15px rgb(16 24 40 / 36%);
 }
 
 .permit-choice.is-active {
@@ -3321,14 +3529,30 @@ button.metric-card:hover {
 }
 
 .permit-choice > b {
+  position: relative;
   display: grid;
-  min-width: 41px;
-  height: 30px;
+  min-width: 46px;
+  height: 36px;
   place-items: center;
-  border-radius: 8px;
-  color: var(--scarlet);
-  background: var(--scarlet-soft);
+  overflow: hidden;
+  border-radius: 9px 9px 9px 3px;
+  color: #fff;
+  background: var(--scarlet);
+  box-shadow: inset -1px 0 rgb(255 255 255 / 22%);
   font-size: 9px;
+  font-weight: 880;
+}
+
+.permit-choice > b::after {
+  position: absolute;
+  top: 6px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 16px #fff;
+  content: "";
 }
 
 .permit-choice > span:nth-last-child(2) {
@@ -3351,9 +3575,33 @@ button.metric-card:hover {
 }
 
 .permit-choice small {
-  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
   color: var(--muted);
   font-size: 7px;
+}
+
+.permit-choice small span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.permit-choice small em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 4px;
+  color: #8a4d05;
+  background: #fff2d8;
+  font-size: 5.7px;
+  font-style: normal;
+  font-weight: 780;
+}
+
+.permit-choice.is-active small em {
+  color: #8f0824;
+  background: var(--scarlet-soft);
 }
 
 .permit-choice > svg {
@@ -3475,6 +3723,38 @@ button.metric-card:hover {
   font-size: 8px;
   font-weight: 680;
   backdrop-filter: blur(12px);
+}
+
+.permit-preview__period {
+  position: absolute;
+  z-index: 9;
+  top: 78px;
+  left: 14px;
+  display: flex;
+  gap: 3px;
+  border: 1px solid rgb(18 20 22 / 11%);
+  border-radius: 10px;
+  padding: 3px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 9px 22px -16px rgb(10 15 20 / 50%);
+  backdrop-filter: blur(10px);
+}
+
+.permit-preview__period button {
+  height: 27px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 9px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.permit-preview__period button.is-active {
+  color: #fff;
+  background: var(--scarlet);
 }
 
 .permit-preview__status svg {
@@ -3665,6 +3945,197 @@ button.metric-card:hover {
   color: #376e57;
   font-size: 8.5px;
   line-height: 1.55;
+}
+
+.permit-planning-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 11px;
+  border: 1px solid #cfddea;
+  border-radius: 13px;
+  padding: 10px 11px;
+  color: #225b86;
+  background: #f0f7fc;
+}
+
+.permit-planning-notice > svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.permit-planning-notice strong {
+  display: block;
+  font-size: 9px;
+}
+
+.permit-planning-notice p {
+  margin: 3px 0 0;
+  color: #4a708c;
+  font-size: 7.5px;
+  line-height: 1.5;
+}
+
+.permit-planning-notice.is-warning {
+  border-color: #ead7a6;
+  color: #8a5909;
+  background: #fff8e7;
+}
+
+.permit-planning-notice.is-warning p {
+  color: #816a3f;
+}
+
+.permit-planning-notice.is-night {
+  border-color: #d9d4f2;
+  color: #5b42a5;
+  background: #f5f2ff;
+}
+
+.permit-planning-notice.is-night p {
+  color: #6d6192;
+}
+
+.overnight-cost-planner {
+  margin-top: 13px;
+  overflow: hidden;
+  border: 1px solid #d9d4f2;
+  border-radius: 15px;
+  background: #fbfaff;
+}
+
+.overnight-cost-planner > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #e5e1f4;
+  padding: 9px 10px;
+}
+
+.overnight-cost-planner > header > span {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  color: #6248ac;
+  background: #eee9ff;
+}
+
+.overnight-cost-planner > header > span svg {
+  width: 17px;
+  height: 17px;
+}
+
+.overnight-cost-planner > header > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+
+.overnight-cost-planner > header small,
+.overnight-cost-planner > header strong {
+  display: block;
+}
+
+.overnight-cost-planner > header small {
+  color: var(--muted);
+  font-size: 6.5px;
+}
+
+.overnight-cost-planner > header strong {
+  margin-top: 2px;
+  font-size: 8.5px;
+}
+
+.overnight-cost-planner__duration {
+  display: flex;
+  gap: 3px;
+}
+
+.overnight-cost-planner__duration button {
+  min-width: 28px;
+  height: 24px;
+  border: 1px solid #d8d2ed;
+  border-radius: 7px;
+  color: #6a5b92;
+  background: #fff;
+  cursor: pointer;
+  font-size: 6.5px;
+  font-weight: 800;
+}
+
+.overnight-cost-planner__duration button.is-active {
+  border-color: #674bb0;
+  color: #fff;
+  background: #674bb0;
+}
+
+.overnight-cost-planner__rates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.overnight-cost-planner__rates > span {
+  min-width: 0;
+  border-right: 1px solid #e8e4f4;
+  padding: 9px 10px;
+}
+
+.overnight-cost-planner__rates > span:last-child {
+  border-right: 0;
+}
+
+.overnight-cost-planner__rates small,
+.overnight-cost-planner__rates strong,
+.overnight-cost-planner__rates i {
+  display: block;
+}
+
+.overnight-cost-planner__rates small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 6.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overnight-cost-planner__rates strong {
+  margin-top: 3px;
+  color: #4f3893;
+  font-size: 13px;
+}
+
+.overnight-cost-planner__rates i {
+  margin-top: 2px;
+  color: #81749f;
+  font-size: 5.8px;
+  font-style: normal;
+}
+
+.overnight-cost-planner > p {
+  margin: 0;
+  border-top: 1px solid #ece8f6;
+  padding: 8px 10px 3px;
+  color: #6e6586;
+  font-size: 6.6px;
+  line-height: 1.5;
+}
+
+.overnight-cost-planner > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 10px 9px;
+  color: #5c43a2;
+  font-size: 6.5px;
+  font-weight: 780;
+}
+
+.overnight-cost-planner > a svg {
+  width: 11px;
+  height: 11px;
 }
 
 .permit-facts {
@@ -4112,7 +4583,7 @@ button.metric-card:hover {
     padding: 7px 8px;
   }
 
-  .permit-map-summary > button {
+  .permit-map-summary > button:not(.permit-map-summary__overview) {
     min-width: 45px;
   }
 
@@ -4166,7 +4637,7 @@ button.metric-card:hover {
     font-size: 8px;
   }
 
-  .permit-map-summary > button {
+  .permit-map-summary > button:not(.permit-map-summary__overview) {
     min-width: 42px;
   }
 

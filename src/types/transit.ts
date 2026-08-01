@@ -28,6 +28,23 @@ export type TransitRouteDetail = {
   lastModified?: string;
 };
 
+export type TransitPrediction = {
+  routeCode?: string;
+  routeColor?: string;
+  darkColor?: string;
+  predictionCountdown?: string | number;
+  predictionTime?: string;
+  systemTime?: string;
+  timeToArrivalInSeconds?: number | string;
+  destination?: string;
+  stopId?: string;
+  stopName?: string;
+  type?: string;
+  isDelayed?: boolean;
+  vehicleId?: string | number;
+  vehicleDistanceInFeet?: number;
+};
+
 export type TransitVehicle = {
   id: string;
   latitude: number;
@@ -39,6 +56,10 @@ export type TransitVehicle = {
   delayed?: boolean;
   updated?: string;
   patternId?: string;
+  predictions?: TransitPrediction[];
+  lastStop?: string | null;
+  service?: string;
+  bus_id?: string | number;
 };
 
 export type TransitFeed = {

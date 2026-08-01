@@ -6,16 +6,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
 import {
   ACCESSIBLE_PERMIT_GUIDANCE,
+  estimateVisitorParkingCost,
   getCurrentAccessSummary,
+  getPermitPlanningNotice,
   isPermitCode,
   OFFICIAL_PARKING_URLS,
   PARKING_PERMITS,
   PERMIT_GROUPS,
   PERMIT_YEAR_2026_27,
+  VISITOR_PARKING_RATES_2026_27,
   type PermitAudience,
 } from "@/data/permits";
 import { usePermitAreas } from "@/hooks/use-permit-areas";
-import { resolvePermitZones } from "@/lib/permit-map";
+import {
+  resolvePermitZones,
+  resolveSurfaceScopeZones,
+} from "@/lib/permit-map";
 import { cn, formatNumber } from "@/lib/utils";
 
 const audienceIcon: Record<PermitAudience, string> = {
@@ -30,6 +36,68 @@ export function getSelectedPermitLabel(code: string) {
   if (!isPermitCode(code)) return "尚未设置停车证";
   const permit = PARKING_PERMITS.find((item) => item.code === code);
   return permit ? `${permit.officialCode} · ${permit.nameZh}` : "尚未设置停车证";
+}
+
+function OvernightCostPlanner() {
+  const [hours, setHours] = useState(2);
+  const estimate = estimateVisitorParkingCost(hours);
+
+  return (
+    <section className="overnight-cost-planner">
+      <header>
+        <span>
+          <Icon icon="solar:moon-stars-bold-duotone" />
+        </span>
+        <div>
+          <small>没有正式 overnight 权限时</small>
+          <strong>按官方访客费率估算</strong>
+        </div>
+        <div className="overnight-cost-planner__duration" aria-label="停车时长">
+          {[2, 4, 8].map((option) => (
+            <button
+              type="button"
+              key={option}
+              className={hours === option ? "is-active" : undefined}
+              onClick={() => setHours(option)}
+              aria-pressed={hours === option}
+            >
+              {option}h
+            </button>
+          ))}
+        </div>
+      </header>
+      <div className="overnight-cost-planner__rates">
+        <span>
+          <small>按小时地面位</small>
+          <strong>${estimate.surfaceUsd.toFixed(2)}</strong>
+          <i>$3 / 小时</i>
+        </span>
+        <span>
+          <small>Academic 车库</small>
+          <strong>${estimate.academicGarageUsd.toFixed(2)}</strong>
+          <i>日上限 $20</i>
+        </span>
+        <span>
+          <small>Medical 车库</small>
+          <strong>${estimate.medicalCenterGarageUsd.toFixed(2)}</strong>
+          <i>日上限 $15.75</i>
+        </span>
+      </div>
+      <p>
+        标准工作日 3–5 a.m. 为 2 小时；仅限明确允许 overnight
+        的按小时位置或 24/7 访客车库。跨午夜、活动和验证优惠以 ParkMobile/
+        入口为准。
+      </p>
+      <a
+        href={VISITOR_PARKING_RATES_2026_27.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        核对官方费率
+        <Icon icon="solar:arrow-right-up-linear" />
+      </a>
+    </section>
+  );
 }
 
 export function PermitSettings({
@@ -47,7 +115,14 @@ export function PermitSettings({
 }) {
   const [draft, setDraft] = useState(selectedCode);
   const [previewMapEnabled, setPreviewMapEnabled] = useState(false);
+  const [previewPeriod, setPreviewPeriod] = useState<"current" | "off-peak">(
+    "current",
+  );
   const modalRef = useRef<HTMLElement>(null);
+  const selectDraft = (code: string) => {
+    setDraft(code);
+    setPreviewPeriod("current");
+  };
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 821px)");
@@ -64,6 +139,7 @@ export function PermitSettings({
     if (!open) return;
     const frame = window.requestAnimationFrame(() => {
       setDraft(selectedCode);
+      setPreviewPeriod("current");
     });
     return () => window.cancelAnimationFrame(frame);
   }, [open, selectedCode]);
@@ -128,10 +204,26 @@ export function PermitSettings({
         : undefined,
     [draft, now],
   );
-  const previewZones = useMemo(
+  const planningNotice = useMemo(
+    () =>
+      isPermitCode(draft) ? getPermitPlanningNotice(draft, now) : undefined,
+    [draft, now],
+  );
+  const currentPreviewZones = useMemo(
     () => (summary ? resolvePermitZones(summary) : []),
     [summary],
   );
+  const offPeakPreviewZones = useMemo(
+    () =>
+      permit ? resolveSurfaceScopeZones(permit.access.offPeakSurface) : [],
+    [permit],
+  );
+  const previewZones =
+    previewPeriod === "off-peak"
+      ? offPeakPreviewZones
+      : currentPreviewZones;
+  const canCompareOffPeak =
+    currentPreviewZones.join(",") !== offPeakPreviewZones.join(",");
   const previewAreas = usePermitAreas(
     previewZones,
     open && previewMapEnabled && previewZones.length > 0,
@@ -179,7 +271,7 @@ export function PermitSettings({
                 "permit-choice permit-choice--special",
                 draft === "none" && "is-active",
               )}
-              onClick={() => setDraft("none")}
+              onClick={() => selectDraft("none")}
             >
               <span>
                 <Icon icon="solar:question-circle-bold-duotone" />
@@ -196,7 +288,7 @@ export function PermitSettings({
                 "permit-choice permit-choice--special",
                 draft === "visitor" && "is-active",
               )}
-              onClick={() => setDraft("visitor")}
+              onClick={() => selectDraft("visitor")}
             >
               <span>
                 <Icon icon="solar:ticket-sale-bold-duotone" />
@@ -231,13 +323,18 @@ export function PermitSettings({
                           "permit-choice",
                           draft === code && "is-active",
                         )}
-                        onClick={() => setDraft(code)}
+                        onClick={() => selectDraft(code)}
                       >
                         <b>{item.officialCode}</b>
                         <span>
                           <strong>{item.nameZh}</strong>
                           <small>
-                            ${formatNumber(item.price.annualUsd)} / 年
+                            <span>${formatNumber(item.price.annualUsd)} / 年</span>
+                            <em>
+                              {item.access.overnight.mode === "not-included"
+                                ? "工作日夜间需另规划"
+                                : "含夜间权限"}
+                            </em>
                           </small>
                         </span>
                         <Icon icon="solar:alt-arrow-right-linear" />
@@ -256,6 +353,26 @@ export function PermitSettings({
             >
               {summary && previewZones.length > 0 ? (
                 <>
+                  {canCompareOffPeak && (
+                    <div className="permit-preview__period" role="group" aria-label="地图权限时段">
+                      <button
+                        type="button"
+                        className={previewPeriod === "current" ? "is-active" : undefined}
+                        onClick={() => setPreviewPeriod("current")}
+                        aria-pressed={previewPeriod === "current"}
+                      >
+                        当前
+                      </button>
+                      <button
+                        type="button"
+                        className={previewPeriod === "off-peak" ? "is-active" : undefined}
+                        onClick={() => setPreviewPeriod("off-peak")}
+                        aria-pressed={previewPeriod === "off-peak"}
+                      >
+                        4 p.m. 后
+                      </button>
+                    </div>
+                  )}
                   {previewMapEnabled && (
                     <CampusParkingMap
                       variant="permit-preview"
@@ -290,7 +407,9 @@ export function PermitSettings({
                     ) : previewHasFeatures ? (
                       <>
                         <Icon icon="solar:map-point-bold-duotone" />
-                        地图按当前美东时段即时更新
+                        {previewPeriod === "off-peak"
+                          ? "正在预览 4 p.m. 后的扩展区域"
+                          : "地图按当前美东时段即时更新"}
                       </>
                     ) : (
                       <>
@@ -377,6 +496,7 @@ export function PermitSettings({
                     </p>
                   </div>
                 </div>
+                <OvernightCostPlanner />
                 <a
                   className="inline-link"
                   href="https://osu.campusparc.com/find-parking/academic-visitor-parking/"
@@ -409,6 +529,33 @@ export function PermitSettings({
                   <p>{summary.surfaceZh}</p>
                   <p>{summary.garageZh}</p>
                 </div>
+
+                {planningNotice && (
+                  <div
+                    className={cn(
+                      "permit-planning-notice",
+                      `is-${planningNotice.tone}`,
+                    )}
+                  >
+                    <Icon
+                      icon={
+                        planningNotice.tone === "night"
+                          ? "solar:moon-stars-bold-duotone"
+                          : planningNotice.tone === "warning"
+                            ? "solar:clock-circle-bold-duotone"
+                            : "solar:map-arrow-right-bold-duotone"
+                      }
+                    />
+                    <span>
+                      <strong>{planningNotice.titleZh}</strong>
+                      <p>{planningNotice.detailZh}</p>
+                    </span>
+                  </div>
+                )}
+
+                {permit.access.overnight.mode === "not-included" && (
+                  <OvernightCostPlanner />
+                )}
 
                 <dl className="permit-facts">
                   <div>
