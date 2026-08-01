@@ -1,0 +1,1124 @@
+/**
+ * CampusParc permit facts and general time rules.
+ *
+ * This module intentionally models only rules that can be stated without
+ * knowing the sign at a particular space. Posted signs, barricades, event
+ * plans, construction notices and instructions from CampusParc always win.
+ *
+ * Sources were checked on 2026-07-30. Prices are for permit year 2026–27.
+ */
+
+export const CAMPUS_TIME_ZONE = "America/New_York" as const;
+
+export const PERMIT_YEAR_2026_27 = {
+  label: "2026–27",
+  startsOn: "2026-08-01",
+  endsOn: "2027-07-31",
+  lastVerifiedOn: "2026-07-30",
+} as const;
+
+export const OFFICIAL_PARKING_URLS = {
+  browsePermits:
+    "https://osu.campusparc.com/get-a-permit/permit-comparison-toolbrowse-permits/",
+  prices2026_27:
+    "https://osu.campusparc.com/media/nrwpruj1/py26-27-rate-table.pdf",
+  surfaceAccess:
+    "https://osu.campusparc.com/media/ytziyyvm/surfacelotaccesstablepy26250520.pdf",
+  garageAccess:
+    "https://osu.campusparc.com/media/wnhdw3z5/garageaccesstablepy261027.pdf",
+  offPeakRules: "https://osu.campusparc.com/off-peak-parking/",
+  parkingPolicies:
+    "https://osu.campusparc.com/resources/parking-policies/",
+  parkingNews: "https://osu.campusparc.com/about-us/news/",
+  holidayCalendar:
+    "https://hr.osu.edu/wp-content/uploads/policy620-future-holiday-calendars.pdf",
+  accessiblePermits:
+    "https://osu.campusparc.com/get-a-permit/ada-accessible-permits/",
+} as const;
+
+export const PERMIT_FACTS_DISCLAIMER_ZH =
+  "本页仅概括一般规则。现场标识、车库入口提示、封路路障、赛事/活动方案及 CampusParc 当日通知始终优先。";
+
+export type PermitAudience = "faculty-ap" | "staff" | "student" | "other";
+
+export type PermitCode =
+  | "A"
+  | "11G"
+  | "WA"
+  | "WAE"
+  | "CX"
+  | "B"
+  | "BE"
+  | "BG"
+  | "WB"
+  | "C"
+  | "CE"
+  | "CG"
+  | "CXC"
+  | "WC"
+  | "WCE"
+  | "WCO"
+  | "REGIONAL"
+  | "RET";
+
+export type SurfaceZone = "A" | "B" | "C" | "CX" | "WA" | "WB" | "WC" | "WCO";
+
+export type SurfaceScope = readonly SurfaceZone[] | "all-unrestricted";
+
+export type GarageAccessMode =
+  | "none"
+  | "all-permit-garages"
+  | "selected-all-times"
+  | "selected-plus-off-peak"
+  | "off-peak"
+  | "weekend-ninth";
+
+export type OvernightAccessMode =
+  | "not-included"
+  | "designated-garage-levels"
+  | "assigned-garage"
+  | "kinnear-only"
+  | "verify-garage-table";
+
+export interface PermitPrice {
+  readonly annualUsd: number;
+  readonly monthlyUsd: number;
+  readonly permitYear: typeof PERMIT_YEAR_2026_27.label;
+}
+
+export interface PermitAccessProfile {
+  /** General weekday peak-period surface access; restricted spaces are excluded. */
+  readonly peakSurface: SurfaceScope;
+  /** General off-peak surface access; restricted spaces are excluded. */
+  readonly offPeakSurface: SurfaceScope;
+  readonly garage: {
+    readonly mode: GarageAccessMode;
+    readonly detailZh: string;
+  };
+  readonly overnight: {
+    readonly mode: OvernightAccessMode;
+    readonly detailZh: string;
+  };
+}
+
+export interface PermitDefinition {
+  readonly code: PermitCode;
+  readonly officialCode: string;
+  readonly audiences: readonly PermitAudience[];
+  readonly nameZh: string;
+  readonly nameEn: string;
+  readonly eligibilityZh: string;
+  readonly descriptionZh: string;
+  readonly price: PermitPrice;
+  readonly access: PermitAccessProfile;
+  readonly officialUrl: string;
+  readonly notesZh?: readonly string[];
+}
+
+const ALL_A_SURFACE: readonly SurfaceZone[] = [
+  "A",
+  "B",
+  "C",
+  "CX",
+  "WA",
+  "WB",
+  "WC",
+];
+
+const B_AND_LOWER_SURFACE: readonly SurfaceZone[] = [
+  "B",
+  "C",
+  "CX",
+  "WA",
+  "WB",
+  "WC",
+];
+
+const C_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["C", "CX", "WC"];
+const WA_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WA", "WB", "WC", "CX"];
+const WB_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WB", "WC", "CX"];
+const WC_AND_LOWER_SURFACE: readonly SurfaceZone[] = ["WC", "CX"];
+
+const noGarage = {
+  mode: "none",
+  detailZh: "不含普通车库权限；进入访客车库须按访客规则付费。",
+} as const;
+
+const noOvernight = {
+  mode: "not-included",
+  detailZh:
+    "不含 3–5 a.m. 夜间存放权限；周末或非高峰可进入，不等于可以在夜间时段留车。",
+} as const;
+
+const remoteHolidayNote =
+  "大学官方假日通常可按公告使用中校区 A、B、C、CX 非保留地面位；车库范围仍取决于证件权限与入口提示。";
+
+export const PARKING_PERMITS: readonly PermitDefinition[] = [
+  {
+    code: "A",
+    officialCode: "A",
+    audiences: ["faculty-ap"],
+    nameZh: "中校区 + 许可车库",
+    nameEn: "Central Campus with Garage Access",
+    eligibilityZh: "Faculty、Administrative 或 Professional 职位；最终资格由学校判定。",
+    descriptionZh: "可使用 A 及较低等级的非保留地面位，并可进入许可车库。",
+    price: { annualUsd: 1518, monthlyUsd: 126.5, permitYear: "2026–27" },
+    access: {
+      peakSurface: ALL_A_SURFACE,
+      offPeakSurface: ALL_A_SURFACE,
+      garage: {
+        mode: "all-permit-garages",
+        detailZh:
+          "可进入一般 permit garage；SAFEAUTO 与 James Outpatient Care 等访客专用车库不在此概括内。",
+      },
+      overnight: {
+        mode: "designated-garage-levels",
+        detailZh:
+          "夜间/长期停车仅限官方指定车库的指定高层区域；超过 72 小时应事先联系 CampusParc。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/a-central-campus-with-garage-access/",
+  },
+  {
+    code: "11G",
+    officialCode: "11G",
+    audiences: ["faculty-ap"],
+    nameZh: "11th Avenue Garage 试点证",
+    nameEn: "11th Avenue Garage Permit (Pilot)",
+    eligibilityZh:
+      "Faculty、Administrative 或 Professional 职位；数量有限，官方使用候补抽签管理销售。",
+    descriptionZh:
+      "11th Avenue Garage 全天权限，其他许可车库为非高峰权限；地面位权限相当于 A 层级。",
+    price: { annualUsd: 1518, monthlyUsd: 126.5, permitYear: "2026–27" },
+    access: {
+      peakSurface: ALL_A_SURFACE,
+      offPeakSurface: ALL_A_SURFACE,
+      garage: {
+        mode: "selected-plus-off-peak",
+        detailZh:
+          "11th Avenue Garage 全天可用；其他许可车库仅在非高峰时段按官方表格开放。",
+      },
+      overnight: {
+        mode: "assigned-garage",
+        detailZh:
+          "11th Avenue Garage 的夜间/长期停车应使用官方指定楼层；其他车库不可由非高峰权限推定。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/11g-11th-avenue-garage-permit-pilot/",
+    notesZh: ["2026–27 继续作为限量试点证销售。"],
+  },
+  {
+    code: "WA",
+    officialCode: "WA",
+    audiences: ["faculty-ap"],
+    nameZh: "西校区地面停车",
+    nameEn: "West Campus Surface Parking",
+    eligibilityZh: "Faculty、Administrative 或 Professional 职位；最终资格由学校判定。",
+    descriptionZh:
+      "西校区 Park & Ride；周末及大学官方假日另含 9th Avenue East/West Garage 权限。",
+    price: { annualUsd: 393.96, monthlyUsd: 32.83, permitYear: "2026–27" },
+    access: {
+      peakSurface: WA_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
+      garage: {
+        mode: "weekend-ninth",
+        detailZh:
+          "周末及大学官方假日可进入 9th Avenue East/West Garage；周末窗口周五 2 p.m. 开始。",
+      },
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/wa-west-campus/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "WAE",
+    officialCode: "WAE",
+    audiences: ["faculty-ap"],
+    nameZh: "西校区 + 非高峰车库",
+    nameEn: "West Campus with Off-Peak Garage Access",
+    eligibilityZh: "Faculty、Administrative 或 Professional 职位；最终资格由学校判定。",
+    descriptionZh: "西校区 Park & Ride，并在非高峰时段提供一般许可车库权限。",
+    price: { annualUsd: 569.76, monthlyUsd: 47.48, permitYear: "2026–27" },
+    access: {
+      peakSurface: WA_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
+      garage: {
+        mode: "off-peak",
+        detailZh:
+          "非高峰可进入官方车库表列出的 permit garage；9th Avenue East/West 的周末窗口周五 2 p.m. 开始。",
+      },
+      overnight: {
+        mode: "verify-garage-table",
+        detailZh:
+          "3–5 a.m. 是否可留车及是否须 8 a.m. 前驶离，必须按具体车库的官方 access table/入口提示核对。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/wae-west-campus-woff-peak-garage-access/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "CX",
+    officialCode: "CX",
+    audiences: ["faculty-ap", "staff"],
+    nameZh: "Buckeye Lot 地面停车",
+    nameEn: "Buckeye Lot Surface Parking",
+    eligibilityZh:
+      "Faculty/A&P、Classified Civil Service Staff，或持有带薪任命的研究生；最终资格由学校判定。",
+    descriptionZh:
+      "Buckeye Lots Park & Ride；可接驳 Buckeye Express，非高峰可用更多非保留地面位。",
+    price: { annualUsd: 393.96, monthlyUsd: 32.83, permitYear: "2026–27" },
+    access: {
+      peakSurface: ["CX"],
+      offPeakSurface: "all-unrestricted",
+      garage: {
+        mode: "weekend-ninth",
+        detailZh:
+          "周末及大学官方假日可进入 9th Avenue East/West Garage；周末窗口周五 2 p.m. 开始。",
+      },
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/cxs-buckeye-lot/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "B",
+    officialCode: "B",
+    audiences: ["staff"],
+    nameZh: "中校区地面停车",
+    nameEn: "Central Campus Surface Parking",
+    eligibilityZh:
+      "Classified Civil Service Staff，或持有带薪任命的研究生；最终资格由学校判定。",
+    descriptionZh: "可使用 B、C 及相应较低等级的非保留地面位，不含普通车库。",
+    price: { annualUsd: 783, monthlyUsd: 65.25, permitYear: "2026–27" },
+    access: {
+      peakSurface: B_AND_LOWER_SURFACE,
+      offPeakSurface: B_AND_LOWER_SURFACE,
+      garage: noGarage,
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/b-central-campus/",
+  },
+  {
+    code: "BE",
+    officialCode: "BE",
+    audiences: ["staff"],
+    nameZh: "中校区 + 非高峰车库",
+    nameEn: "Central Campus with Off-Peak Garage Access",
+    eligibilityZh:
+      "Classified Civil Service Staff，或持有带薪任命的研究生；最终资格由学校判定。",
+    descriptionZh: "B 层级地面位，并在非高峰时段提供一般许可车库权限。",
+    price: { annualUsd: 999.96, monthlyUsd: 83.33, permitYear: "2026–27" },
+    access: {
+      peakSurface: B_AND_LOWER_SURFACE,
+      offPeakSurface: B_AND_LOWER_SURFACE,
+      garage: {
+        mode: "off-peak",
+        detailZh: "非高峰可进入官方 garage access table 列出的许可车库。",
+      },
+      overnight: {
+        mode: "verify-garage-table",
+        detailZh:
+          "3–5 a.m. 是否可留车及是否须 8 a.m. 前驶离，必须按具体车库的官方 access table/入口提示核对。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/be-central-campus-woff-peak-garage-access/",
+  },
+  {
+    code: "BG",
+    officialCode: "BG1–BG7",
+    audiences: ["staff"],
+    nameZh: "中校区 + 指定车库",
+    nameEn: "Central Campus with Select Garage Access",
+    eligibilityZh:
+      "Classified Civil Service Staff，或持有带薪任命的研究生；具体版本可能需要候补。",
+    descriptionZh:
+      "B 层级地面位；BG1–BG7 各自对应一组全天车库，购买前须确认具体后缀。",
+    price: { annualUsd: 1415.52, monthlyUsd: 117.96, permitYear: "2026–27" },
+    access: {
+      peakSurface: B_AND_LOWER_SURFACE,
+      offPeakSurface: B_AND_LOWER_SURFACE,
+      garage: {
+        mode: "selected-all-times",
+        detailZh:
+          "仅限所购 BG 后缀对应的车库；不同版本覆盖 Tuttle/Northwest、9th East、11th/Union North、Lane/West Lane、Arps/Union South、Old Cannon 等组合。",
+      },
+      overnight: {
+        mode: "assigned-garage",
+        detailZh:
+          "仅在所购 BG 版本对应且官方允许的车库/楼层留车；访客优先车库可能另有驶离时限。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/bg-central-campus-wselect-garage-access/",
+    notesZh: ["“BG”不是单一车库权限，界面应同时保存具体后缀（BG1–BG7）。"],
+  },
+  {
+    code: "WB",
+    officialCode: "WB",
+    audiences: ["staff"],
+    nameZh: "西校区地面停车",
+    nameEn: "West Campus Surface Parking",
+    eligibilityZh:
+      "Classified Civil Service Staff，或持有带薪任命的研究生；最终资格由学校判定。",
+    descriptionZh:
+      "西校区 Park & Ride；周末及大学官方假日另含 9th Avenue East/West Garage 权限。",
+    price: { annualUsd: 196.2, monthlyUsd: 16.35, permitYear: "2026–27" },
+    access: {
+      peakSurface: WB_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
+      garage: {
+        mode: "weekend-ninth",
+        detailZh:
+          "周末及大学官方假日可进入 9th Avenue East/West Garage；周末窗口周五 2 p.m. 开始。",
+      },
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/wb-west-campus/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "C",
+    officialCode: "C",
+    audiences: ["student"],
+    nameZh: "学生中校区地面停车",
+    nameEn: "Student Central Campus Surface Parking",
+    eligibilityZh: "通勤学生 Rank 3+（至少 60 个已完成学分）；最终资格由学校判定。",
+    descriptionZh: "C、WC、CX 非保留地面位；官方明确不含车库与夜间停车。",
+    price: { annualUsd: 530.04, monthlyUsd: 44.17, permitYear: "2026–27" },
+    access: {
+      peakSurface: C_AND_LOWER_SURFACE,
+      offPeakSurface: C_AND_LOWER_SURFACE,
+      garage: noGarage,
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/c-central-campus/",
+  },
+  {
+    code: "CE",
+    officialCode: "CE",
+    audiences: ["student"],
+    nameZh: "学生中校区 + 非高峰车库",
+    nameEn: "Student Central Campus with Off-Peak Garage Access",
+    eligibilityZh:
+      "住校学生 Rank 3+（至少 60 个已完成学分）；最终资格由学校判定。",
+    descriptionZh: "C 层级地面位，并在非高峰时段提供一般许可车库权限。",
+    price: { annualUsd: 921.48, monthlyUsd: 76.79, permitYear: "2026–27" },
+    access: {
+      peakSurface: C_AND_LOWER_SURFACE,
+      offPeakSurface: C_AND_LOWER_SURFACE,
+      garage: {
+        mode: "off-peak",
+        detailZh: "非高峰可进入官方 garage access table 列出的许可车库。",
+      },
+      overnight: noOvernight,
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/ce-central-campus-with-off-peak-garage-access/",
+  },
+  {
+    code: "CG",
+    officialCode: "CG1–CG7",
+    audiences: ["student"],
+    nameZh: "学生中校区 + 指定车库",
+    nameEn: "Student Central Campus with Select Garage",
+    eligibilityZh:
+      "通常为 Rank 3+ 学生；部分版本对较低 Rank 开放，首年学生除获批例外外不适用。",
+    descriptionZh:
+      "C 层级地面位；CG1–CG7 对应指定车库并含该车库的夜间指定楼层权限。",
+    price: { annualUsd: 1335.96, monthlyUsd: 111.33, permitYear: "2026–27" },
+    access: {
+      peakSurface: C_AND_LOWER_SURFACE,
+      offPeakSurface: C_AND_LOWER_SURFACE,
+      garage: {
+        mode: "selected-all-times",
+        detailZh:
+          "仅限所购 CG 后缀对应车库；CG1–CG7 的车库、Rank 要求及候补状态并不相同。",
+      },
+      overnight: {
+        mode: "assigned-garage",
+        detailZh:
+          "仅在对应车库的指定夜间楼层停车，例如 11th Level 3+、Union North 4S+、Lane 5+、Arps/Gateway 4+；以当期表格为准。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/cg-central-campus-wselect-garage/",
+    notesZh: ["“CG”不是单一车库权限，界面应同时保存具体后缀（CG1–CG7）。"],
+  },
+  {
+    code: "CXC",
+    officialCode: "CXC",
+    audiences: ["student"],
+    nameZh: "学生 Buckeye Lot",
+    nameEn: "Student Buckeye Lot",
+    eligibilityZh: "通勤学生 Rank 1+；最终资格由学校判定。",
+    descriptionZh:
+      "Buckeye Lots Park & Ride，可接驳 Buckeye Express；非高峰可用更多非保留地面位。",
+    price: { annualUsd: 262.8, monthlyUsd: 21.9, permitYear: "2026–27" },
+    access: {
+      peakSurface: ["CX"],
+      offPeakSurface: "all-unrestricted",
+      garage: noGarage,
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/cxc-buckeye-lot/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "WC",
+    officialCode: "WC",
+    audiences: ["student"],
+    nameZh: "学生西校区地面停车",
+    nameEn: "Student West Campus Surface Parking",
+    eligibilityZh: "通勤学生 Rank 1+；最终资格由学校判定。",
+    descriptionZh:
+      "西校区 Park & Ride，可接驳 Medical Center Express/Campus Connector；非高峰可用更多地面位。",
+    price: { annualUsd: 186.72, monthlyUsd: 15.56, permitYear: "2026–27" },
+    access: {
+      peakSurface: WC_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
+      garage: noGarage,
+      overnight: noOvernight,
+    },
+    officialUrl: "https://osu.campusparc.com/get-a-permit/wc-west-campus/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "WCE",
+    officialCode: "WCE",
+    audiences: ["student"],
+    nameZh: "学生西校区 + 非高峰车库",
+    nameEn: "Student West Campus with Off-Peak Garage Access",
+    eligibilityZh: "通勤学生 Rank 1+；最终资格由学校判定。",
+    descriptionZh: "西校区 Park & Ride，并在非高峰时段提供一般许可车库权限。",
+    price: { annualUsd: 540.24, monthlyUsd: 45.02, permitYear: "2026–27" },
+    access: {
+      peakSurface: WC_AND_LOWER_SURFACE,
+      offPeakSurface: "all-unrestricted",
+      garage: {
+        mode: "off-peak",
+        detailZh: "非高峰可进入官方 garage access table 列出的许可车库。",
+      },
+      overnight: noOvernight,
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/wce-west-campus-woff-peak-garage-access/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "WCO",
+    officialCode: "WCO",
+    audiences: ["student"],
+    nameZh: "学生西校区夜间存放",
+    nameEn: "Student West Campus with Overnight Storage",
+    eligibilityZh:
+      "住校学生 Rank 1+，但首年学生除外；最终资格由学校判定。",
+    descriptionZh: "包含 1121 Kinnear Road Lot 指定区域的夜间存放权限。",
+    price: { annualUsd: 765, monthlyUsd: 63.75, permitYear: "2026–27" },
+    access: {
+      peakSurface: ["WCO"],
+      offPeakSurface: "all-unrestricted",
+      garage: noGarage,
+      overnight: {
+        mode: "kinnear-only",
+        detailZh:
+          "3–5 a.m. 夜间存放仅限 1121 Kinnear Road Lot 的 WCO 指定区域，不扩展到其他地面位或车库。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/wco-west-campus-with-overnight-storage/",
+    notesZh: [remoteHolidayNote],
+  },
+  {
+    code: "REGIONAL",
+    officialCode: "R-A / Regional",
+    audiences: ["other"],
+    nameZh: "区域校区 A 等效证",
+    nameEn: "Regional Central Campus with Garage Access",
+    eligibilityZh:
+      "Ohio State Lima、Mansfield、Marion、Newark 或 ATI Wooster 的 Faculty/A&P 员工。",
+    descriptionZh: "折扣价 A 等效证，含中校区地面位及一般许可车库权限。",
+    price: { annualUsd: 393.96, monthlyUsd: 32.83, permitYear: "2026–27" },
+    access: {
+      peakSurface: ALL_A_SURFACE,
+      offPeakSurface: ALL_A_SURFACE,
+      garage: {
+        mode: "all-permit-garages",
+        detailZh: "A 等效的一般许可车库权限；访客专用与受限区域除外。",
+      },
+      overnight: {
+        mode: "designated-garage-levels",
+        detailZh:
+          "夜间/长期停车仅限官方指定车库楼层；超过 72 小时应事先联系 CampusParc。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/regional-permit-central-campus-with-garage-access/",
+  },
+  {
+    code: "RET",
+    officialCode: "RET",
+    audiences: ["other"],
+    nameZh: "退休人员 A 等效证",
+    nameEn: "Retiree Central Campus with Garage Access",
+    eligibilityZh: "Ohio State 退休员工；最终资格由学校判定。",
+    descriptionZh: "折扣价 A 等效证，含中校区地面位及一般许可车库权限。",
+    price: { annualUsd: 542.28, monthlyUsd: 45.19, permitYear: "2026–27" },
+    access: {
+      peakSurface: ALL_A_SURFACE,
+      offPeakSurface: ALL_A_SURFACE,
+      garage: {
+        mode: "all-permit-garages",
+        detailZh: "A 等效的一般许可车库权限；访客专用与受限区域除外。",
+      },
+      overnight: {
+        mode: "designated-garage-levels",
+        detailZh:
+          "夜间/长期停车仅限官方指定车库楼层；超过 72 小时应事先联系 CampusParc。",
+      },
+    },
+    officialUrl:
+      "https://osu.campusparc.com/get-a-permit/retiree-central-campus-wgarage-access/",
+  },
+] as const;
+
+export interface PermitGroup {
+  readonly audience: PermitAudience;
+  readonly labelZh: string;
+  readonly descriptionZh: string;
+  readonly permitCodes: readonly PermitCode[];
+}
+
+export const PERMIT_GROUPS: readonly PermitGroup[] = [
+  {
+    audience: "faculty-ap",
+    labelZh: "Faculty / A&P",
+    descriptionZh: "教师、行政与专业岗位",
+    permitCodes: ["A", "11G", "WA", "WAE", "CX"],
+  },
+  {
+    audience: "staff",
+    labelZh: "Staff / CCS",
+    descriptionZh: "Classified Civil Service Staff 与符合条件的带薪任命研究生",
+    permitCodes: ["B", "BE", "BG", "WB", "CX"],
+  },
+  {
+    audience: "student",
+    labelZh: "学生",
+    descriptionZh: "通勤/住校、Rank 与首年身份会影响可购买种类",
+    permitCodes: ["C", "CE", "CG", "CXC", "WC", "WCE", "WCO"],
+  },
+  {
+    audience: "other",
+    labelZh: "其他资格",
+    descriptionZh: "区域校区员工与退休员工",
+    permitCodes: ["REGIONAL", "RET"],
+  },
+] as const;
+
+export const ACCESSIBLE_PERMIT_GUIDANCE = {
+  titleZh: "无障碍停车权限",
+  descriptionZh:
+    "需向 CampusParc 提交州政府签发的 disability placard/plate 登记证明，并把无障碍权限关联到停车账户。普通证件本身不会自动开放 ADA 车位。",
+  officialUrl: OFFICIAL_PARKING_URLS.accessiblePermits,
+} as const;
+
+const permitByCode = Object.fromEntries(
+  PARKING_PERMITS.map((permit) => [permit.code, permit]),
+) as Readonly<Record<PermitCode, PermitDefinition>>;
+
+export const PERMITS_BY_CODE = permitByCode;
+
+export function isPermitCode(value: string): value is PermitCode {
+  return Object.prototype.hasOwnProperty.call(permitByCode, value);
+}
+
+export function getPermitByCode(code: PermitCode): PermitDefinition {
+  return permitByCode[code];
+}
+
+export function getPermitsForAudience(
+  audience: PermitAudience,
+): readonly PermitDefinition[] {
+  return PARKING_PERMITS.filter((permit) =>
+    permit.audiences.includes(audience),
+  );
+}
+
+export interface UniversityHoliday {
+  /** University-observed date in the campus time zone. */
+  readonly date: string;
+  readonly nameZh: string;
+  readonly nameEn: string;
+}
+
+/**
+ * University-observed dates published by Ohio State HR for calendar years
+ * 2026 and 2027. CampusParc may publish a longer event-specific window.
+ */
+export const OSU_UNIVERSITY_HOLIDAYS_2026_2027: readonly UniversityHoliday[] = [
+  { date: "2026-01-01", nameZh: "元旦", nameEn: "New Year's Day" },
+  {
+    date: "2026-01-19",
+    nameZh: "马丁·路德·金纪念日",
+    nameEn: "Martin Luther King Jr. Day",
+  },
+  { date: "2026-05-25", nameZh: "阵亡将士纪念日", nameEn: "Memorial Day" },
+  { date: "2026-06-19", nameZh: "六月节", nameEn: "Juneteenth" },
+  {
+    date: "2026-07-03",
+    nameZh: "独立日（校方补休）",
+    nameEn: "Independence Day (observed)",
+  },
+  { date: "2026-09-07", nameZh: "劳动节", nameEn: "Labor Day" },
+  { date: "2026-11-11", nameZh: "退伍军人节", nameEn: "Veterans Day" },
+  { date: "2026-11-26", nameZh: "感恩节", nameEn: "Thanksgiving Day" },
+  {
+    date: "2026-11-27",
+    nameZh: "原住民日／哥伦布日（校方安排）",
+    nameEn: "Columbus Day (university observed)",
+  },
+  {
+    date: "2026-12-24",
+    nameZh: "总统日（校方安排）",
+    nameEn: "Presidents' Day (university observed)",
+  },
+  { date: "2026-12-25", nameZh: "圣诞节", nameEn: "Christmas Day" },
+  { date: "2027-01-01", nameZh: "元旦", nameEn: "New Year's Day" },
+  {
+    date: "2027-01-18",
+    nameZh: "马丁·路德·金纪念日",
+    nameEn: "Martin Luther King Jr. Day",
+  },
+  { date: "2027-05-31", nameZh: "阵亡将士纪念日", nameEn: "Memorial Day" },
+  {
+    date: "2027-06-18",
+    nameZh: "六月节（校方补休）",
+    nameEn: "Juneteenth (observed)",
+  },
+  {
+    date: "2027-07-05",
+    nameZh: "独立日（校方补休）",
+    nameEn: "Independence Day (observed)",
+  },
+  { date: "2027-09-06", nameZh: "劳动节", nameEn: "Labor Day" },
+  { date: "2027-11-11", nameZh: "退伍军人节", nameEn: "Veterans Day" },
+  { date: "2027-11-25", nameZh: "感恩节", nameEn: "Thanksgiving Day" },
+  {
+    date: "2027-11-26",
+    nameZh: "原住民日／哥伦布日（校方安排）",
+    nameEn: "Columbus Day (university observed)",
+  },
+  {
+    date: "2027-12-23",
+    nameZh: "总统日（校方补休）",
+    nameEn: "Presidents' Day (observed)",
+  },
+  {
+    date: "2027-12-24",
+    nameZh: "圣诞节（校方补休）",
+    nameEn: "Christmas Day (observed)",
+  },
+] as const;
+
+export type InstantInput = Date | number;
+export type ParkingPeriod = "peak" | "off-peak" | "overnight" | "holiday";
+
+export interface CampusDateTimeParts {
+  readonly dateKey: string;
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  /** Sunday = 0, Monday = 1, … Saturday = 6. */
+  readonly weekday: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+  readonly minuteOfDay: number;
+}
+
+export interface ParkingTimeClassification {
+  readonly primary: ParkingPeriod;
+  readonly labelZh: string;
+  readonly campus: CampusDateTimeParts;
+  readonly isPeak: boolean;
+  readonly isOffPeak: boolean;
+  readonly isOvernight: boolean;
+  readonly isWeekend: boolean;
+  readonly isHoliday: boolean;
+  readonly holiday: UniversityHoliday | null;
+  /**
+   * False means this module has no authoritative holiday dates for that
+   * calendar year; callers should avoid presenting "not a holiday" as certain.
+   */
+  readonly holidayCalendarCovered: boolean;
+}
+
+const campusPartsFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: CAMPUS_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+const weekdayNumber: Readonly<Record<string, number>> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+const holidayByDate = new Map(
+  OSU_UNIVERSITY_HOLIDAYS_2026_2027.map((holiday) => [
+    holiday.date,
+    holiday,
+  ]),
+);
+
+function timestampOf(at: InstantInput): number {
+  const timestamp = at instanceof Date ? at.getTime() : at;
+  if (!Number.isFinite(timestamp)) {
+    throw new RangeError("A valid Date or finite Unix timestamp is required.");
+  }
+  return timestamp;
+}
+
+function partValue(
+  parts: readonly Intl.DateTimeFormatPart[],
+  type: Intl.DateTimeFormatPartTypes,
+): string {
+  const value = parts.find((part) => part.type === type)?.value;
+  if (value === undefined) {
+    throw new RangeError(`Unable to read ${type} in ${CAMPUS_TIME_ZONE}.`);
+  }
+  return value;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days, 12));
+  return [
+    shifted.getUTCFullYear(),
+    pad2(shifted.getUTCMonth() + 1),
+    pad2(shifted.getUTCDate()),
+  ].join("-");
+}
+
+export function getCampusDateTimeParts(at: InstantInput): CampusDateTimeParts {
+  const parts = campusPartsFormatter.formatToParts(timestampOf(at));
+  const year = Number(partValue(parts, "year"));
+  const month = Number(partValue(parts, "month"));
+  const day = Number(partValue(parts, "day"));
+  // Some Intl implementations can emit 24 for midnight; normalize it to 0.
+  const hour = Number(partValue(parts, "hour")) % 24;
+  const minute = Number(partValue(parts, "minute"));
+  const second = Number(partValue(parts, "second"));
+  const weekdayText = partValue(parts, "weekday");
+  const weekday = weekdayNumber[weekdayText];
+
+  if (weekday === undefined) {
+    throw new RangeError(`Unknown weekday returned by Intl: ${weekdayText}`);
+  }
+
+  return {
+    dateKey: `${year}-${pad2(month)}-${pad2(day)}`,
+    year,
+    month,
+    day,
+    weekday,
+    hour,
+    minute,
+    second,
+    minuteOfDay: hour * 60 + minute,
+  };
+}
+
+export function getUniversityHolidayAt(
+  at: InstantInput,
+): UniversityHoliday | null {
+  return holidayByDate.get(getCampusDateTimeParts(at).dateKey) ?? null;
+}
+
+interface HolidayWindow {
+  readonly holiday: UniversityHoliday;
+  readonly phase: "observed-date" | "following-morning";
+}
+
+function getHolidayParkingWindow(
+  campus: CampusDateTimeParts,
+): HolidayWindow | null {
+  const today = holidayByDate.get(campus.dateKey);
+
+  // CampusParc defines a holiday window from 12:01 a.m.
+  if (today && campus.minuteOfDay >= 1) {
+    return { holiday: today, phase: "observed-date" };
+  }
+
+  // The window continues until (but not including) 3:00 a.m. the next day.
+  const previousHoliday = holidayByDate.get(shiftDateKey(campus.dateKey, -1));
+  if (previousHoliday && campus.minuteOfDay < 3 * 60) {
+    return {
+      holiday: previousHoliday,
+      phase: "following-morning",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Classifies one instant using Columbus campus time, independently of the
+ * browser or server time zone.
+ *
+ * Flags may overlap: for example, 3–5 a.m. on Saturday is both weekend
+ * off-peak and overnight. `primary` chooses the most useful UI label.
+ */
+export function classifyCampusParkingTime(
+  at: InstantInput,
+): ParkingTimeClassification {
+  const campus = getCampusDateTimeParts(at);
+  const isWeekend = campus.weekday === 0 || campus.weekday === 6;
+  const isOvernight =
+    campus.minuteOfDay >= 3 * 60 && campus.minuteOfDay < 5 * 60;
+  const holidayWindow = getHolidayParkingWindow(campus);
+  const isHoliday = holidayWindow !== null;
+  const isOffPeak =
+    isHoliday ||
+    isWeekend ||
+    campus.minuteOfDay < 3 * 60 ||
+    campus.minuteOfDay >= 16 * 60;
+  const isPeak =
+    !isHoliday &&
+    !isWeekend &&
+    campus.minuteOfDay >= 5 * 60 &&
+    campus.minuteOfDay < 16 * 60;
+
+  const primary: ParkingPeriod = isHoliday
+    ? "holiday"
+    : isOvernight
+      ? "overnight"
+      : isOffPeak
+        ? "off-peak"
+        : "peak";
+
+  const labels: Readonly<Record<ParkingPeriod, string>> = {
+    peak: "工作日高峰时段",
+    "off-peak": isWeekend ? "周末非高峰时段" : "工作日非高峰时段",
+    overnight: "夜间停车时段（3–5 a.m.）",
+    holiday: holidayWindow
+      ? `${holidayWindow.holiday.nameZh}假日规则`
+      : "大学假日规则",
+  };
+
+  return {
+    primary,
+    labelZh: labels[primary],
+    campus,
+    isPeak,
+    isOffPeak,
+    isOvernight,
+    isWeekend,
+    isHoliday,
+    holiday: holidayWindow?.holiday ?? null,
+    holidayCalendarCovered: campus.year === 2026 || campus.year === 2027,
+  };
+}
+
+/** Short alias for UI code. */
+export const classifyParkingTime = classifyCampusParkingTime;
+
+export function isPeakParkingTime(at: InstantInput): boolean {
+  return classifyCampusParkingTime(at).isPeak;
+}
+
+export function isOffPeakParkingTime(at: InstantInput): boolean {
+  return classifyCampusParkingTime(at).isOffPeak;
+}
+
+export function isOvernightParkingTime(at: InstantInput): boolean {
+  return classifyCampusParkingTime(at).isOvernight;
+}
+
+export function isHolidayParkingTime(at: InstantInput): boolean {
+  return classifyCampusParkingTime(at).isHoliday;
+}
+
+export function isWithinPermitYear2026_27(at: InstantInput): boolean {
+  const dateKey = getCampusDateTimeParts(at).dateKey;
+  return (
+    dateKey >= PERMIT_YEAR_2026_27.startsOn &&
+    dateKey <= PERMIT_YEAR_2026_27.endsOn
+  );
+}
+
+export interface ActiveParkingNotice {
+  readonly titleZh: string;
+  readonly detailZh: string;
+  readonly officialUrl?: string;
+}
+
+export interface CurrentAccessSummary {
+  readonly permit: PermitDefinition;
+  readonly time: ParkingTimeClassification;
+  readonly status: "allowed-with-conditions" | "check-required" | "not-included";
+  readonly headlineZh: string;
+  readonly surfaceZh: string;
+  readonly garageZh: string;
+  readonly detailZh: string;
+  readonly warningsZh: readonly string[];
+  readonly officialUrls: readonly string[];
+}
+
+function formatSurfaceScope(scope: SurfaceScope): string {
+  if (scope === "all-unrestricted") {
+    return "校园内一般非保留地面位";
+  }
+  return `${scope.join(" / ")} 非保留地面位`;
+}
+
+function isRemotePermit(code: PermitCode): boolean {
+  return (
+    code === "WA" ||
+    code === "WAE" ||
+    code === "CX" ||
+    code === "WB" ||
+    code === "CXC" ||
+    code === "WC" ||
+    code === "WCE" ||
+    code === "WCO"
+  );
+}
+
+function hasFridayNinthGarageWindow(
+  time: ParkingTimeClassification,
+): boolean {
+  return (
+    time.isHoliday ||
+    time.isWeekend ||
+    (time.campus.weekday === 5 && time.campus.minuteOfDay >= 14 * 60)
+  );
+}
+
+function currentGarageSummary(
+  permit: PermitDefinition,
+  time: ParkingTimeClassification,
+): string {
+  const { garage } = permit.access;
+
+  if (garage.mode === "none") {
+    return garage.detailZh;
+  }
+
+  if (garage.mode === "weekend-ninth") {
+    return hasFridayNinthGarageWindow(time)
+      ? garage.detailZh
+      : "当前不在该证件的 9th Avenue East/West Garage 周末/假日开放窗口。";
+  }
+
+  if (garage.mode === "off-peak") {
+    return time.isOffPeak && !time.isOvernight
+      ? garage.detailZh
+      : time.isOvernight
+        ? permit.access.overnight.detailZh
+        : "当前高峰时段不含一般车库权限。";
+  }
+
+  return garage.detailZh;
+}
+
+/**
+ * Builds conservative user-facing guidance for a permit at one instant.
+ * Pass a live CampusParc event notice when the application has one; doing so
+ * intentionally downgrades the result to "check-required".
+ */
+export function getCurrentAccessSummary(
+  permitCode: PermitCode,
+  at: InstantInput,
+  activeNotice?: ActiveParkingNotice,
+): CurrentAccessSummary {
+  const permit = getPermitByCode(permitCode);
+  const time = classifyCampusParkingTime(at);
+  const overnightIncluded =
+    permit.access.overnight.mode !== "not-included";
+
+  let surfaceZh: string;
+  if (time.isHoliday && isRemotePermit(permit.code)) {
+    surfaceZh =
+      "按大学假日的一般规则，可使用中校区 A / B / C / CX 非保留地面位。";
+  } else if (time.primary === "overnight") {
+    surfaceZh = permit.access.overnight.detailZh;
+  } else {
+    const scope = time.isOffPeak
+      ? permit.access.offPeakSurface
+      : permit.access.peakSurface;
+    surfaceZh = `一般可使用 ${formatSurfaceScope(scope)}。`;
+  }
+
+  const garageZh =
+    time.primary === "overnight"
+      ? permit.access.overnight.detailZh
+      : currentGarageSummary(permit, time);
+
+  const warningsZh = [
+    PERMIT_FACTS_DISCLAIMER_ZH,
+    "ADA、预留、州公务车、装卸区、按小时收费位等受限车位不会因一般停车证或非高峰规则自动开放。",
+    "把车辆停在同一地点超过 72 小时前，应先联系 CampusParc 获得确认。",
+  ];
+
+  if (!time.holidayCalendarCovered) {
+    warningsZh.push(
+      "当前日期超出内置的 2026–2027 假日日历，不能据此排除当日为大学假日。",
+    );
+  }
+
+  if (!isWithinPermitYear2026_27(at)) {
+    warningsZh.push("当前日期不在 2026–27 证件年度内，价格与权限可能已经变更。");
+  }
+
+  if (activeNotice) {
+    warningsZh.unshift(`${activeNotice.titleZh}：${activeNotice.detailZh}`);
+  }
+
+  const status: CurrentAccessSummary["status"] = activeNotice
+    ? "check-required"
+    : time.primary === "overnight" && !overnightIncluded
+      ? "not-included"
+      : time.primary === "holiday" ||
+          permit.access.overnight.mode === "verify-garage-table"
+        ? "check-required"
+        : "allowed-with-conditions";
+
+  const officialUrls = [
+    permit.officialUrl,
+    OFFICIAL_PARKING_URLS.parkingPolicies,
+    OFFICIAL_PARKING_URLS.parkingNews,
+    ...(activeNotice?.officialUrl ? [activeNotice.officialUrl] : []),
+  ];
+
+  return {
+    permit,
+    time,
+    status,
+    headlineZh: `${permit.officialCode} · ${time.labelZh}`,
+    surfaceZh,
+    garageZh,
+    detailZh: `${surfaceZh} ${garageZh}`,
+    warningsZh,
+    officialUrls,
+  };
+}
