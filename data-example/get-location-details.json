@@ -1,0 +1,169 @@
+{
+    "data": {
+        "marketing": {
+            "address_notes": null,
+            "gmaps_override": null,
+            "display_driving_directions": true,
+            "show_on_bodyshop_support_page": false,
+            "location_url_slug": "18647",
+            "show_on_find_us": false,
+            "gmaps_override_longitude": -83.026361,
+            "display_name": "Columbus, OH – West 3rd Avenue",
+            "gmaps_override_latitude": 39.98463,
+            "service_center_phone": null,
+            "roadside_assistance_number": null,
+            "service_hours_by_appointment_only": "0",
+            "store_hours_by_appointment_only": "0",
+            "phone_numbers": null,
+            "common_name": null,
+            "site_event": {
+                "has_event": null
+            }
+        },
+        "functions": [
+            {
+                "business_hours": {
+                    "hours": []
+                },
+                "address": {
+                    "country": "US",
+                    "formatted_address": [
+                        "820 W 3rd Ave",
+                        "Columbus, OH 43212"
+                    ],
+                    "address_validated": false,
+                    "city": "Columbus",
+                    "address_1": "820 W 3rd Ave",
+                    "address_2": "",
+                    "latitude": 39.9844109,
+                    "county": "Fairfield",
+                    "state_province": "OH",
+                    "locale": "en-US",
+                    "address_number": "820",
+                    "address_street": "W 3rd Ave",
+                    "district": null,
+                    "country_name": null,
+                    "address_provider_enum": "google",
+                    "postal_code": "43212",
+                    "postal_code_suffix": null,
+                    "longitude": -83.0273946
+                },
+                "address_by_locale": [
+                    {
+                        "country": "US",
+                        "formatted_address": [
+                            "820 W 3rd Ave",
+                            "Columbus, OH 43212"
+                        ],
+                        "address_validated": false,
+                        "city": "Columbus",
+                        "address_1": "820 W 3rd Ave",
+                        "address_2": "",
+                        "latitude": 39.9844109,
+                        "county": "Fairfield",
+                        "state_province": "OH",
+                        "locale": "en-US",
+                        "address_number": "820",
+                        "address_street": "W 3rd Ave",
+                        "district": null,
+                        "country_name": null,
+                        "address_provider_enum": "google",
+                        "postal_code": "43212",
+                        "postal_code_suffix": null,
+                        "longitude": -83.0273946
+                    }
+                ],
+                "customer_facing_name": " Columbus OH",
+                "translations": {
+                    "customerFacingName": {
+                        "en-US": " Columbus OH"
+                    }
+                },
+                "name": "Charging_Supercharger",
+                "opening_date": "2023-11-16",
+                "status": "Open"
+            }
+        ],
+        "tesla_center_collision_function": {
+            "company_phone": null
+        },
+        "key_data": {
+            "address": {
+                "country": "US",
+                "formatted_address": [
+                    "820 W 3rd Ave",
+                    "Columbus, OH 43212"
+                ],
+                "address_validated": false,
+                "city": "Columbus",
+                "address_1": "820 W 3rd Ave",
+                "address_2": "",
+                "latitude": 39.9844109,
+                "county": "Fairfield",
+                "state_province": "OH",
+                "locale": "en-US",
+                "address_number": "820",
+                "address_street": "W 3rd Ave",
+                "district": null,
+                "country_name": "United States",
+                "address_provider_enum": "google",
+                "postal_code": "43212",
+                "postal_code_suffix": null,
+                "longitude": -83.0273946
+            },
+            "phone": null,
+            "local_address": null,
+            "use_local_address": false,
+            "geo_point": {
+                "lon": -83.0273946,
+                "lat": 39.9844109
+            },
+            "status": {
+                "name": "Open"
+            },
+            "address_by_locale": [
+                {
+                    "country": "US",
+                    "city": "Columbus",
+                    "address_1": "820 W 3rd Ave",
+                    "address_2": "",
+                    "latitude": 39.9844109,
+                    "country_name": null,
+                    "state_province": "OH",
+                    "locale": "en-US",
+                    "postal_code": "43212",
+                    "longitude": -83.0273946
+                },
+                {
+                    "country": "US",
+                    "city": "Columbus",
+                    "address_1": "820 W 3rd Ave",
+                    "address_2": "",
+                    "latitude": 39.9844109,
+                    "country_name": null,
+                    "state_province": "OH",
+                    "locale": "en",
+                    "postal_code": "43212",
+                    "longitude": -83.0273946
+                }
+            ]
+        },
+        "supercharger_function": {
+            "customer_facing_coming_soon_date": null,
+            "actual_longitude": "-83.026361",
+            "access_type": "Public",
+            "installed_full_power": "250",
+            "vote_winner_quarter": null,
+            "show_on_find_us": "0",
+            "project_status": "Open",
+            "actual_latitude": "39.98463",
+            "open_to_non_tesla": false,
+            "coming_soon_longitude": null,
+            "site_status": "open",
+            "coming_soon_name": null,
+            "charging_accessibility": "NACS Partner Enabled (Production)",
+            "coming_soon_latitude": null,
+            "num_charger_stalls": "8"
+        }
+    }
+}
