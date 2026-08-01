@@ -1,6 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react";
+import type { FeatureCollection, Geometry } from "geojson";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
@@ -8,20 +9,30 @@ import {
   ACCESSIBLE_PERMIT_GUIDANCE,
   estimateVisitorParkingCost,
   getCurrentAccessSummary,
+  getIdentityDefinition,
+  getPermitByCode,
   getPermitPlanningNotice,
+  inferIdentityForPermitSelection,
   isPermitCode,
+  isPermitEligibleForIdentity,
   OFFICIAL_PARKING_URLS,
   PARKING_PERMITS,
+  PARKING_IDENTITIES,
   PERMIT_GROUPS,
   PERMIT_YEAR_2026_27,
   VISITOR_PARKING_RATES_2026_27,
   type PermitAudience,
+  type UserParkingIdentity,
 } from "@/data/permits";
 import { usePermitAreas } from "@/hooks/use-permit-areas";
 import {
   resolvePermitZones,
   resolveSurfaceScopeZones,
 } from "@/lib/permit-map";
+import {
+  filterPermitPreviewFeatures,
+  type PermitAreaProperties,
+} from "@/lib/permit-access";
 import { cn, formatNumber } from "@/lib/utils";
 
 const audienceIcon: Record<PermitAudience, string> = {
@@ -29,6 +40,12 @@ const audienceIcon: Record<PermitAudience, string> = {
   staff: "solar:case-round-bold-duotone",
   student: "solar:backpack-bold-duotone",
   other: "solar:users-group-rounded-bold-duotone",
+};
+
+const identityIcon: Record<UserParkingIdentity, string> = {
+  ...audienceIcon,
+  "medical-center": "solar:medical-kit-bold-duotone",
+  visitor: "solar:ticket-sale-bold-duotone",
 };
 
 export function getSelectedPermitLabel(code: string) {
@@ -103,17 +120,22 @@ function OvernightCostPlanner() {
 export function PermitSettings({
   open,
   selectedCode,
+  selectedIdentity,
   now,
   onSave,
   onClose,
 }: {
   open: boolean;
   selectedCode: string;
+  selectedIdentity?: UserParkingIdentity;
   now: number;
-  onSave: (code: string) => void;
+  onSave: (code: string, identity: UserParkingIdentity) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(selectedCode);
+  const [draftIdentity, setDraftIdentity] = useState<UserParkingIdentity>(
+    selectedIdentity ?? inferIdentityForPermitSelection(selectedCode),
+  );
   const [previewMapEnabled, setPreviewMapEnabled] = useState(false);
   const [previewPeriod, setPreviewPeriod] = useState<"current" | "off-peak">(
     "current",
@@ -121,7 +143,26 @@ export function PermitSettings({
   const modalRef = useRef<HTMLElement>(null);
   const selectDraft = (code: string) => {
     setDraft(code);
+    if (code === "visitor") setDraftIdentity("visitor");
     setPreviewPeriod("current");
+  };
+  const selectIdentity = (identity: UserParkingIdentity) => {
+    setDraftIdentity(identity);
+    setPreviewPeriod("current");
+    if (identity === "visitor") {
+      setDraft("visitor");
+      return;
+    }
+    if (
+      draft === "visitor" ||
+      (isPermitCode(draft) &&
+        !isPermitEligibleForIdentity(
+          getPermitByCode(draft),
+          identity,
+        ))
+    ) {
+      setDraft("none");
+    }
   };
 
   useEffect(() => {
@@ -139,10 +180,13 @@ export function PermitSettings({
     if (!open) return;
     const frame = window.requestAnimationFrame(() => {
       setDraft(selectedCode);
+      setDraftIdentity(
+        selectedIdentity ?? inferIdentityForPermitSelection(selectedCode),
+      );
       setPreviewPeriod("current");
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [open, selectedCode]);
+  }, [open, selectedCode, selectedIdentity]);
 
   useEffect(() => {
     if (!open) return;
@@ -197,6 +241,12 @@ export function PermitSettings({
     () => (isPermitCode(draft) ? PARKING_PERMITS.find((item) => item.code === draft) : undefined),
     [draft],
   );
+  const visiblePermitGroups = useMemo(() => {
+    const audiences = new Set(
+      getIdentityDefinition(draftIdentity).permitAudiences,
+    );
+    return PERMIT_GROUPS.filter((group) => audiences.has(group.audience));
+  }, [draftIdentity]);
   const summary = useMemo(
     () =>
       isPermitCode(draft)
@@ -228,7 +278,24 @@ export function PermitSettings({
     previewZones,
     open && previewMapEnabled && previewZones.length > 0,
   );
-  const previewHasFeatures = previewAreas.data.features.length > 0;
+  const identityFilteredPreviewAreas = useMemo(
+    () =>
+      summary
+        ? filterPermitPreviewFeatures(
+            previewAreas.data as FeatureCollection<
+              Geometry,
+              PermitAreaProperties
+            >,
+            {
+              permitCode: summary.permit.code,
+              identity: draftIdentity,
+              at: now,
+            },
+          )
+        : previewAreas.data,
+    [draftIdentity, now, previewAreas.data, summary],
+  );
+  const previewHasFeatures = identityFilteredPreviewAreas.features.length > 0;
 
   if (!open) return null;
 
@@ -265,6 +332,35 @@ export function PermitSettings({
 
         <div className="permit-modal__content">
           <aside className="permit-picker">
+            <div className="permit-identity-selector" aria-label="你的身份">
+              <div>
+                <strong>先选择你的身份</strong>
+                <small>只用于筛掉明显不适用的停车证</small>
+              </div>
+              <div role="group" aria-label="停车身份筛选">
+                {PARKING_IDENTITIES.map((identity) => (
+                  <button
+                    type="button"
+                    key={identity.code}
+                    className={cn(
+                      draftIdentity === identity.code && "is-active",
+                    )}
+                    onClick={() => selectIdentity(identity.code)}
+                    aria-pressed={draftIdentity === identity.code}
+                    title={identity.descriptionZh}
+                  >
+                    <Icon icon={identityIcon[identity.code]} />
+                    <span>{identity.labelZh}</span>
+                  </button>
+                ))}
+              </div>
+              {draftIdentity === "medical-center" && (
+                <p>
+                  医学中心员工的可购证件仍取决于实际 Faculty/A&amp;P 或 CCS
+                  岗位；这里同时显示两组，不推测医院内部指派区域。
+                </p>
+              )}
+            </div>
             <button
               type="button"
               className={cn(
@@ -282,7 +378,7 @@ export function PermitSettings({
               </span>
               <Icon icon="solar:alt-arrow-right-linear" />
             </button>
-            <button
+            {draftIdentity === "visitor" && <button
               type="button"
               className={cn(
                 "permit-choice permit-choice--special",
@@ -298,9 +394,9 @@ export function PermitSettings({
                 <small>按小时或访客停车</small>
               </span>
               <Icon icon="solar:alt-arrow-right-linear" />
-            </button>
+            </button>}
 
-            {PERMIT_GROUPS.map((group) => (
+            {visiblePermitGroups.map((group) => (
               <div className="permit-group" key={group.audience}>
                 <div className="permit-group__title">
                   <Icon icon={audienceIcon[group.audience]} />
@@ -377,7 +473,7 @@ export function PermitSettings({
                     <CampusParkingMap
                       variant="permit-preview"
                       permitLayer={{
-                        areas: previewAreas.data,
+                        areas: identityFilteredPreviewAreas,
                         visible: !previewAreas.error,
                         permitCode: summary.permit.officialCode,
                         zones: previewZones,
@@ -658,7 +754,7 @@ export function PermitSettings({
             <button
               type="button"
               className="button button--primary"
-              onClick={() => onSave(draft)}
+              onClick={() => onSave(draft, draftIdentity)}
             >
               保存到此浏览器
               <Icon icon="solar:check-circle-bold" />

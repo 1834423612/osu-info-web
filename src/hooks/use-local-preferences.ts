@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import {
+  inferIdentityForPermitSelection,
+  isUserParkingIdentity,
+} from "@/data/permits";
 import type { UserPreferences } from "@/types/parking";
 
 const STORAGE_KEY = "buckeye-parking:preferences:v1";
 
 const defaults: UserPreferences = {
   permitCode: "none",
+  parkingIdentity: "student",
   favorites: [],
   evMode: false,
   mapTransitVisible: true,
@@ -24,9 +29,17 @@ export function useLocalPreferences() {
         const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as
           | Partial<UserPreferences>
           | undefined;
+        const permitCode =
+          typeof saved?.permitCode === "string"
+            ? saved.permitCode
+            : defaults.permitCode;
         setPreferences({
           ...defaults,
           ...saved,
+          permitCode,
+          parkingIdentity: isUserParkingIdentity(saved?.parkingIdentity)
+            ? saved.parkingIdentity
+            : inferIdentityForPermitSelection(permitCode),
           favorites: Array.isArray(saved?.favorites)
             ? saved.favorites.filter((value) => typeof value === "number")
             : [],

@@ -116,6 +116,72 @@ export const PERMIT_FACTS_DISCLAIMER_ZH =
 
 export type PermitAudience = "faculty-ap" | "staff" | "student" | "other";
 
+/**
+ * Coarse local-only identity used to hide permit choices that plainly do not
+ * apply. It is not an eligibility decision: CampusParc and Ohio State remain
+ * the authority for job family, student rank and medical-center assignments.
+ */
+export type UserParkingIdentity =
+  | PermitAudience
+  | "medical-center"
+  | "visitor";
+
+export interface ParkingIdentityDefinition {
+  readonly code: UserParkingIdentity;
+  readonly labelZh: string;
+  readonly descriptionZh: string;
+  readonly permitAudiences: readonly PermitAudience[];
+}
+
+export const PARKING_IDENTITIES: readonly ParkingIdentityDefinition[] = [
+  {
+    code: "student",
+    labelZh: "学生",
+    descriptionZh: "按 Rank、通勤或住校身份筛选学生证件",
+    permitAudiences: ["student"],
+  },
+  {
+    code: "faculty-ap",
+    labelZh: "Faculty / A&P",
+    descriptionZh: "教师、行政与专业岗位",
+    permitAudiences: ["faculty-ap"],
+  },
+  {
+    code: "staff",
+    labelZh: "Staff / CCS",
+    descriptionZh: "Classified Civil Service Staff 与符合条件的带薪研究生",
+    permitAudiences: ["staff"],
+  },
+  {
+    code: "medical-center",
+    labelZh: "医学中心员工",
+    descriptionZh: "仍需按实际 Faculty/A&P 或 CCS 岗位及分配区域确认",
+    permitAudiences: ["faculty-ap", "staff"],
+  },
+  {
+    code: "other",
+    labelZh: "区域校区 / 退休",
+    descriptionZh: "区域校区员工或 Ohio State 退休人员",
+    permitAudiences: ["other"],
+  },
+  {
+    code: "visitor",
+    labelZh: "访客 / 患者",
+    descriptionZh: "只查看明确开放的访客或按小时停车",
+    permitAudiences: [],
+  },
+] as const;
+
+const parkingIdentityCodes = new Set<UserParkingIdentity>(
+  PARKING_IDENTITIES.map((identity) => identity.code),
+);
+
+export function isUserParkingIdentity(
+  value: unknown,
+): value is UserParkingIdentity {
+  return typeof value === "string" && parkingIdentityCodes.has(value as UserParkingIdentity);
+}
+
 export type PermitCode =
   | "A"
   | "11G"
@@ -752,6 +818,32 @@ export function getPermitsForAudience(
   return PARKING_PERMITS.filter((permit) =>
     permit.audiences.includes(audience),
   );
+}
+
+export function getIdentityDefinition(
+  identity: UserParkingIdentity,
+): ParkingIdentityDefinition {
+  return (
+    PARKING_IDENTITIES.find((candidate) => candidate.code === identity) ??
+    PARKING_IDENTITIES[0]
+  );
+}
+
+export function isPermitEligibleForIdentity(
+  permit: PermitDefinition,
+  identity: UserParkingIdentity,
+): boolean {
+  return getIdentityDefinition(identity).permitAudiences.some((audience) =>
+    permit.audiences.includes(audience),
+  );
+}
+
+export function inferIdentityForPermitSelection(
+  permitCode: string,
+): UserParkingIdentity {
+  if (permitCode === "visitor") return "visitor";
+  if (!isPermitCode(permitCode)) return "student";
+  return getPermitByCode(permitCode).audiences[0] ?? "student";
 }
 
 export interface UniversityHoliday {

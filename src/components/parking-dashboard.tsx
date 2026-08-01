@@ -5,8 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { EvControl } from "@/components/ev-control";
+import { EvStationPanel } from "@/components/ev-station-panel";
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
-import { ParkingCard } from "@/components/parking-card";
+import {
+  ParkingCard,
+  type ParkingAccessPresentation,
+} from "@/components/parking-card";
 import { ParkingDetailSheet } from "@/components/parking-detail-sheet";
 import {
   getSelectedPermitLabel,
@@ -21,6 +25,7 @@ import {
   getPermitPlanningNotice,
   isPermitCode,
   OFFICIAL_PARKING_URLS,
+  type UserParkingIdentity,
 } from "@/data/permits";
 import {
   getParkingLocationByGarageId,
@@ -32,6 +37,7 @@ import { useParkingStatus } from "@/hooks/use-parking-status";
 import { usePermitAreas } from "@/hooks/use-permit-areas";
 import { useTransit } from "@/hooks/use-transit";
 import { formatCampusModified } from "@/lib/parking-feed";
+import { resolveParkingLocationAccess } from "@/lib/parking-location-access";
 import { resolvePermitZones } from "@/lib/permit-map";
 import {
   cn,
@@ -53,7 +59,7 @@ const initialFilters: ParkingFilters = {
 
 type SortMode = "recommended" | "available" | "quiet" | "name";
 type MobileView = "list" | "map";
-type SidebarTab = "parking" | "transit";
+type SidebarTab = "parking" | "transit" | "charging";
 
 function feedLabel(state: ReturnType<typeof useParkingStatus>["state"]) {
   if (state === "live") return "实时数据";
@@ -82,6 +88,7 @@ export function ParkingDashboard() {
   const [mobileView, setMobileView] = useState<MobileView>("list");
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("parking");
   const [selectedTransitRoute, setSelectedTransitRoute] = useState<string>();
+  const [selectedEvStationId, setSelectedEvStationId] = useState<string>();
   const [transitPanelExpanded, setTransitPanelExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
@@ -125,6 +132,38 @@ export function ParkingDashboard() {
     });
   }, [feed.data.Garages, preferences.favorites]);
 
+  const parkingAccessById = useMemo<
+    Readonly<Record<number, ParkingAccessPresentation>>
+  >(() => {
+    const permitCode =
+      preferences.permitCode === "visitor"
+        ? "visitor"
+        : isPermitCode(preferences.permitCode)
+          ? preferences.permitCode
+          : "none";
+    return Object.fromEntries(
+      locations.map((location) => {
+        const access = resolveParkingLocationAccess(location, {
+          permitCode,
+          identity: preferences.parkingIdentity,
+          at: now,
+        });
+        return [
+          location.GarageId,
+          location.Closed
+            ? {
+                status: "unavailable" as const,
+                title: "停车点当前关闭",
+                detail:
+                  "CampusParc 实时 feed 已将此地点标为关闭；无论停车证或访客入口状态如何，都请改用其他地点。",
+                requiresPayment: false,
+              }
+            : access,
+        ];
+      }),
+    );
+  }, [locations, now, preferences.parkingIdentity, preferences.permitCode]);
+
   const filteredLocations = useMemo(() => {
     const query = filters.query.trim().toLocaleLowerCase();
     return locations
@@ -142,10 +181,15 @@ export function ParkingDashboard() {
         if (filters.kind !== "all" && location.kind !== filters.kind) {
           return false;
         }
-        if (filters.access === "visitor" && location.GarageType === 2) {
+        const access = parkingAccessById[location.GarageId];
+        if (filters.access === "visitor" && access.status !== "visitor-paid") {
           return false;
         }
-        if (filters.access === "permit" && location.GarageType === 3) {
+        if (
+          filters.access === "permit" &&
+          access.status !== "included" &&
+          access.status !== "later"
+        ) {
           return false;
         }
         if (filters.availability === "open" && location.available <= 0) {
@@ -165,14 +209,24 @@ export function ParkingDashboard() {
         if (sort === "name") {
           return a.GarageName.localeCompare(b.GarageName, "en");
         }
-        if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
         if (a.Closed !== b.Closed) return a.Closed ? 1 : -1;
+        if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+        const accessRank = {
+          included: 0,
+          "visitor-paid": 1,
+          later: 2,
+          unavailable: 3,
+        } as const;
+        const accessDifference =
+          accessRank[parkingAccessById[a.GarageId].status] -
+          accessRank[parkingAccessById[b.GarageId].status];
+        if (accessDifference) return accessDifference;
         const levelDifference =
           Number(a.UsePercentage >= 70) - Number(b.UsePercentage >= 70);
         if (levelDifference) return levelDifference;
         return b.available - a.available;
       });
-  }, [favoritesOnly, filters, locations, sort]);
+  }, [favoritesOnly, filters, locations, parkingAccessById, sort]);
 
   const selectedLocation = locations.find(
     (location) => location.GarageId === selectedId,
@@ -260,8 +314,11 @@ export function ParkingDashboard() {
   }, [permitSummary, preferences.permitCode, selectedLocation]);
 
   const nearestFastCharger = useMemo(() => {
-    if (!selectedLocation) return ev.stations.at(0);
-    return [...ev.stations]
+    const fastChargers = ev.stations.filter((station) =>
+      station.chargingSpeeds?.includes("dc-fast"),
+    );
+    if (!selectedLocation) return fastChargers.at(0);
+    return fastChargers
       .sort(
         (a, b) =>
           haversineMeters(selectedLocation, a) -
@@ -295,8 +352,8 @@ export function ParkingDashboard() {
   }, []);
 
   const handlePermitSave = useCallback(
-    (code: string) => {
-      update({ permitCode: code });
+    (code: string, identity: UserParkingIdentity) => {
+      update({ permitCode: code, parkingIdentity: identity });
       setPermitAreaLayerEnabled(true);
       setPermitOpen(false);
     },
@@ -489,6 +546,7 @@ export function ParkingDashboard() {
           {selectedLocation ? (
             <ParkingDetailSheet
               location={selectedLocation}
+              access={parkingAccessById[selectedLocation.GarageId]}
               permitName={permitLabel}
               permitMessage={selectedPermitMessage}
               nearestFastCharger={nearestFastCharger}
@@ -530,6 +588,19 @@ export function ParkingDashboard() {
                 <span>
                   <strong>CABS 公交</strong>
                   <small>{transit.routeOverviews.length || 6} 条线路</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={sidebarTab === "charging" ? "is-active" : ""}
+                aria-selected={sidebarTab === "charging"}
+                onClick={() => setSidebarTab("charging")}
+              >
+                <Icon icon="solar:bolt-circle-bold-duotone" />
+                <span>
+                  <strong>充电站</strong>
+                  <small>{ev.stations.length || "—"} 个地点</small>
                 </span>
               </button>
             </div>
@@ -684,8 +755,8 @@ export function ParkingDashboard() {
                       }
                     >
                       <option value="all">全部入口</option>
-                      <option value="visitor">访客可进</option>
-                      <option value="permit">停车证可进</option>
+                      <option value="visitor">当前需按访客付费</option>
+                      <option value="permit">证件当前或稍后可用</option>
                     </select>
                   </label>
 
@@ -732,6 +803,7 @@ export function ParkingDashboard() {
                     key={location.GarageId}
                     location={location}
                     selected={location.GarageId === selectedId}
+                    access={parkingAccessById[location.GarageId]}
                     onSelect={() => selectLocation(location.GarageId)}
                     onToggleFavorite={() =>
                       toggleFavorite(location.GarageId)
@@ -743,7 +815,7 @@ export function ParkingDashboard() {
               )}
             </div>
               </>
-            ) : (
+            ) : sidebarTab === "transit" ? (
               <TransitRoutePanel
                 routes={transit.routeOverviews}
                 activeRoutes={transit.activeRoutes}
@@ -757,6 +829,29 @@ export function ParkingDashboard() {
                 }
                 onToggleRoute={transit.toggleRoute}
               />
+            ) : (
+              <div className="ev-panel-scroll">
+                <EvStationPanel
+                  stations={ev.stations}
+                  loading={ev.loading}
+                  error={ev.error}
+                  warning={ev.warning}
+                  updatedAt={ev.updatedAt}
+                  selectedId={selectedEvStationId}
+                  onSelectStation={(station) => {
+                    setSelectedEvStationId(station.id);
+                    if (!preferences.evMode) update({ evMode: true });
+                  }}
+                  mapVisible={preferences.evMode}
+                  onToggleMap={() => {
+                    const visible = !preferences.evMode;
+                    update({ evMode: visible });
+                    if (visible && window.innerWidth <= 820) {
+                      setMobileView("map");
+                    }
+                  }}
+                />
+              </div>
             )}
             </div>
           )}
@@ -776,6 +871,22 @@ export function ParkingDashboard() {
                 </span>
               </div>
               <div className="map-legend">
+                <span className="access-key access-key--included">
+                  <i />
+                  证件已含
+                </span>
+                <span className="access-key access-key--paid">
+                  <i />
+                  访客付费
+                </span>
+                <span className="access-key access-key--later">
+                  <i />
+                  稍后可停
+                </span>
+                <span className="access-key access-key--unavailable">
+                  <i />
+                  当前不可停
+                </span>
                 <span className="level-open">
                   <i />
                   &lt; 45%
@@ -805,6 +916,9 @@ export function ParkingDashboard() {
                 showTransit={preferences.mapTransitVisible}
                 evStations={ev.stations}
                 showEv={preferences.evMode}
+                selectedEvStationId={selectedEvStationId}
+                onSelectEvStation={setSelectedEvStationId}
+                parkingAccessById={parkingAccessById}
                 permitLayer={{
                   areas: permitAreas.data,
                   visible: showPermitAreas,
@@ -1212,17 +1326,21 @@ export function ParkingDashboard() {
         </button>
         <button
           type="button"
-          onClick={() => update({ evMode: !preferences.evMode })}
-          className={preferences.evMode ? "is-active" : ""}
+          onClick={() => {
+            setMobileView("list");
+            setSidebarTab("charging");
+            if (!preferences.evMode) update({ evMode: true });
+          }}
+          className={sidebarTab === "charging" ? "is-active" : ""}
         >
           <Icon
             icon={
-              preferences.evMode
+              sidebarTab === "charging"
                 ? "solar:bolt-circle-bold"
                 : "solar:bolt-circle-linear"
             }
           />
-          <span>EV</span>
+          <span>充电</span>
         </button>
         <button type="button" onClick={() => setPermitOpen(true)}>
           <Icon icon="solar:key-square-2-linear" />
@@ -1234,6 +1352,7 @@ export function ParkingDashboard() {
         key={`${permitOpen ? "open" : "closed"}-${preferences.permitCode}`}
         open={permitOpen}
         selectedCode={preferences.permitCode}
+        selectedIdentity={preferences.parkingIdentity}
         now={now}
         onSave={handlePermitSave}
         onClose={handlePermitClose}

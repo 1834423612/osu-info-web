@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 
+import teslaChargerSnapshot from "../../../../../data-example/get-charger-details.json";
+import teslaLocationSnapshot from "../../../../../data-example/get-location-details.json";
+
+import {
+  OSU_EV_CHARGING_SOURCE,
+  PARKING_LOCATIONS,
+} from "@/data/parking-locations";
+import {
+  parseTeslaWestThird,
+  TESLA_WEST_THIRD_ENDPOINTS,
+} from "@/lib/tesla-ev";
 import type {
+  EvChargingSpeed,
   EvConnector,
   EvConnectorType,
   EvNetworkKind,
@@ -17,12 +29,12 @@ const NLR_NEAREST_URL =
 const AFDC_STATION_LOCATOR = "https://afdc.energy.gov/stations/";
 const TESLA_WEST_THIRD =
   "https://www.tesla.com/findus/location/supercharger/18647";
-const OSU_EV_CHARGING =
-  "https://ttm.osu.edu/other-transit-and-services/electric-charging-stations";
 const CAMPUS_CENTER = { latitude: 40.0067, longitude: -83.0305 };
 const SEARCH_RADIUS_MILES = 5;
 const SOURCE_CHECK_DATE = "2026-08-01";
 const SUCCESS_CACHE_TTL = 60 * 60 * 1000;
+const PARTIAL_FALLBACK_CACHE_TTL = 15 * 60 * 1000;
+const TESLA_FETCH_TIMEOUT_MS = 12_000;
 
 type JsonRecord = Record<string, unknown>;
 type SuccessfulCacheEntry = {
@@ -110,18 +122,25 @@ function stationStatus(value: unknown): EvStationStatus {
   }
 }
 
-function dcFastUnits(record: JsonRecord) {
+function chargingUnits(record: JsonRecord) {
   if (!Array.isArray(record.ev_charging_units)) return [];
   return record.ev_charging_units.filter(
-    (unit): unit is JsonRecord =>
-      isRecord(unit) && asText(unit.charging_level)?.toLowerCase() === "dc_fast",
+    (unit): unit is JsonRecord => isRecord(unit),
   );
 }
 
-function hasDcFastCharging(record: JsonRecord) {
-  if ((asPositiveInteger(record.ev_dc_fast_num) ?? 0) > 0) return true;
+function hasEvCharging(record: JsonRecord) {
+  if (
+    [
+      record.ev_level1_evse_num,
+      record.ev_level2_evse_num,
+      record.ev_dc_fast_num,
+    ].some((value) => (asPositiveInteger(value) ?? 0) > 0)
+  ) {
+    return true;
+  }
 
-  return dcFastUnits(record).some((unit) => {
+  return chargingUnits(record).some((unit) => {
     if ((asPositiveInteger(unit.port_count) ?? 0) > 0) return true;
     if (!isRecord(unit.connectors)) return false;
     return Object.values(unit.connectors).some(
@@ -134,7 +153,7 @@ function hasDcFastCharging(record: JsonRecord) {
 function extractConnectors(record: JsonRecord): EvConnector[] {
   const aggregated = new Map<string, EvConnector>();
 
-  for (const unit of dcFastUnits(record)) {
+  for (const unit of chargingUnits(record)) {
     if (!isRecord(unit.connectors)) continue;
 
     for (const [rawType, details] of Object.entries(unit.connectors)) {
@@ -160,17 +179,7 @@ function extractConnectors(record: JsonRecord): EvConnector[] {
       )
     : [];
 
-  // These AFDC connector codes can carry DC power. AC-only connectors are not
-  // shown in a result explicitly requested as a DC-fast station.
-  const dcConnectorCodes = new Set([
-    "TESLA",
-    "J1772COMBO",
-    "CHADEMO",
-    "J3271",
-  ]);
-
   for (const rawType of legacyConnectorTypes) {
-    if (!dcConnectorCodes.has(rawType.toUpperCase())) continue;
     const type = connectorType(rawType);
     if (![...aggregated.values()].some((connector) => connector.type === type)) {
       aggregated.set(`${type}:unknown`, { type });
@@ -184,14 +193,51 @@ function extractConnectors(record: JsonRecord): EvConnector[] {
 }
 
 function extractCapacity(record: JsonRecord) {
-  const legacyCount = asPositiveInteger(record.ev_dc_fast_num);
-  if (legacyCount) return legacyCount;
-
-  const detailedCount = dcFastUnits(record).reduce(
+  const detailedCount = chargingUnits(record).reduce(
     (sum, unit) => sum + (asPositiveInteger(unit.port_count) ?? 0),
     0,
   );
-  return detailedCount || undefined;
+  if (detailedCount) return detailedCount;
+
+  const legacyCount = [
+    record.ev_level1_evse_num,
+    record.ev_level2_evse_num,
+    record.ev_dc_fast_num,
+  ].reduce<number>(
+    (sum, value) => sum + (asPositiveInteger(value) ?? 0),
+    0,
+  );
+  return legacyCount || undefined;
+}
+
+function extractChargingSpeeds(record: JsonRecord): EvChargingSpeed[] {
+  const speeds = new Set<EvChargingSpeed>();
+
+  if ((asPositiveInteger(record.ev_level1_evse_num) ?? 0) > 0) {
+    speeds.add("level-1");
+  }
+  if ((asPositiveInteger(record.ev_level2_evse_num) ?? 0) > 0) {
+    speeds.add("level-2");
+  }
+  if ((asPositiveInteger(record.ev_dc_fast_num) ?? 0) > 0) {
+    speeds.add("dc-fast");
+  }
+
+  for (const unit of chargingUnits(record)) {
+    switch (asText(unit.charging_level)?.toLowerCase()) {
+      case "level_1":
+        speeds.add("level-1");
+        break;
+      case "level_2":
+        speeds.add("level-2");
+        break;
+      case "dc_fast":
+        speeds.add("dc-fast");
+        break;
+    }
+  }
+
+  return speeds.size ? [...speeds] : ["unknown"];
 }
 
 function buildAddress(record: JsonRecord) {
@@ -223,7 +269,7 @@ function normalizeStation(value: unknown): EvStation | null {
     longitude > 180 ||
     accessCode !== "public" ||
     value.restricted_access === true ||
-    !hasDcFastCharging(value)
+    !hasEvCharging(value)
   ) {
     return null;
   }
@@ -231,6 +277,7 @@ function normalizeStation(value: unknown): EvStation | null {
   const network = asText(value.ev_network);
   const kind = networkKind(network, name);
   const connectors = extractConnectors(value);
+  const chargingSpeeds = extractChargingSpeeds(value);
   const capacity = extractCapacity(value);
   const maximumPower = connectors.reduce(
     (maximum, connector) => Math.max(maximum, connector.powerKw ?? 0),
@@ -255,6 +302,7 @@ function normalizeStation(value: unknown): EvStation | null {
     operator: network,
     networkKind: kind,
     connectors,
+    chargingSpeeds,
     capacity,
     // AFDC's status is an operating status, not live per-port availability.
     availabilityIsRealtime: false,
@@ -293,84 +341,171 @@ function normalizeStation(value: unknown): EvStation | null {
         ? [
             {
               label: "Ohio State TTM 充电站说明",
-              url: OSU_EV_CHARGING,
+              url: OSU_EV_CHARGING_SOURCE,
               checkedAt: SOURCE_CHECK_DATE,
             },
           ]
         : []),
     ],
     openingHours: asText(value.access_days_time),
-    power: maximumPower > 0 ? `最高 ${maximumPower} kW` : "DC 快充",
+    power:
+      maximumPower > 0
+        ? `最高 ${maximumPower} kW`
+        : chargingSpeeds.includes("dc-fast")
+          ? "DC 快充"
+          : chargingSpeeds.includes("level-2")
+            ? "Level 2"
+            : "功率未公布",
     website: officialWebsite,
     isTesla: kind === "tesla-supercharger",
     source: "afdc",
   };
 }
 
-function fallbackStations(): EvStation[] {
+function staticTeslaStation() {
+  return parseTeslaWestThird(
+    teslaChargerSnapshot,
+    teslaLocationSnapshot,
+    "static-snapshot",
+    `${SOURCE_CHECK_DATE}T00:00:00-04:00`,
+  );
+}
+
+function campusLevel2Stations(): EvStation[] {
+  return PARKING_LOCATIONS.filter(
+    (location) => location.hasEvCharging && location.evCharging,
+  ).map((location) => ({
+    id: `osu-level2-${location.garageId}`,
+    name: `Ohio State · ${location.name} Level 2`,
+    latitude: location.coordinates[1],
+    longitude: location.coordinates[0],
+    address: location.address,
+    operator: "ChargePoint / Ohio State",
+    networkKind: "chargepoint" as const,
+    connectors: [{ type: "J1772" as const, count: 2 }],
+    chargingSpeeds: ["level-2" as const],
+    capacity: 2,
+    availabilityIsRealtime: false,
+    pricing: "$0.50/kWh（Ohio State，自 2026-03-02）",
+    status: "operational" as const,
+    updatedAt: SOURCE_CHECK_DATE,
+    lastConfirmedAt: SOURCE_CHECK_DATE,
+    accessNote:
+      "Ohio State 官方列出的双头 Level 2 充电点；另需符合停车权限并支付相应停车费。官方页面仍含旧费率段，实际结算以 ChargePoint 为准；未公开实时空闲端口。",
+    sources: [
+      {
+        label: "Ohio State TTM 校园充电站说明",
+        url: OSU_EV_CHARGING_SOURCE,
+        checkedAt: SOURCE_CHECK_DATE,
+      },
+    ],
+    campusLocation: {
+      garageId: location.garageId,
+      name: location.name,
+    },
+    openingHours: "随停车设施开放",
+    power: "Level 2（双头）",
+    website: OSU_EV_CHARGING_SOURCE,
+    isTesla: false,
+    source: "campus" as const,
+  }));
+}
+
+function osuCarFastStation(): EvStation {
+  return {
+    id: "osu-car-dc-fast",
+    name: "Ohio State · CAR DC Fast Charger",
+    latitude: 39.9982657,
+    longitude: -83.0327743,
+    address:
+      "Center for Automotive Research · 930 Kinnear Rd, Columbus, OH 43212",
+    operator: "The Ohio State University",
+    networkKind: "other",
+    connectors: [{ type: "other", count: 1 }],
+    chargingSpeeds: ["dc-fast"],
+    capacity: 1,
+    availabilityIsRealtime: false,
+    pricing: "$0.50/kWh（自 2026-03-02）",
+    status: "operational",
+    updatedAt: SOURCE_CHECK_DATE,
+    lastConfirmedAt: SOURCE_CHECK_DATE,
+    accessNote:
+      "官方未公开接口类型、功率或实时空闲状态；以现场停车权限和标识为准。",
+    sources: [
+      {
+        label: "Ohio State TTM 充电站说明",
+        url: OSU_EV_CHARGING_SOURCE,
+        checkedAt: SOURCE_CHECK_DATE,
+      },
+    ],
+    power: "DC 快充（官方未公布功率）",
+    website: OSU_EV_CHARGING_SOURCE,
+    isTesla: false,
+    source: "fallback",
+  };
+}
+
+function distanceMiles(left: EvStation, right: EvStation) {
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusMiles = 3958.8;
+  const latitudeDelta = toRadians(right.latitude - left.latitude);
+  const longitudeDelta = toRadians(right.longitude - left.longitude);
+  const latitudeA = toRadians(left.latitude);
+  const latitudeB = toRadians(right.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(latitudeA) *
+      Math.cos(latitudeB) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return (
+    earthRadiusMiles *
+    2 *
+    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  );
+}
+
+function mergeCampusStations(stations: EvStation[]) {
+  return campusLevel2Stations().reduce((merged, campus) => {
+    const existingIndex = merged.findIndex(
+      (station) =>
+        station.networkKind === "chargepoint" &&
+        distanceMiles(station, campus) <= 0.08,
+    );
+    if (existingIndex < 0) return [...merged, campus];
+
+    const existing = merged[existingIndex];
+    const next = [...merged];
+    next[existingIndex] = {
+      ...existing,
+      campusLocation: campus.campusLocation,
+      sources: [
+        ...existing.sources,
+        ...campus.sources.filter(
+          (source) =>
+            !existing.sources.some((current) => current.url === source.url),
+        ),
+      ],
+      accessNote: [existing.accessNote, campus.accessNote]
+        .filter(Boolean)
+        .join(" · "),
+    };
+    return next;
+  }, stations);
+}
+
+function mergeTeslaStation(stations: EvStation[], tesla: EvStation) {
   return [
-    {
-      id: "tesla-supercharger-18647",
-      name: "Tesla Supercharger · Columbus – West 3rd Avenue",
-      latitude: 39.9859,
-      longitude: -83.0252,
-      address: "GetGo Café + Market · 820 W 3rd Ave, Columbus, OH 43212",
-      operator: "Tesla",
-      networkKind: "tesla-supercharger",
-      connectors: [{ type: "NACS", count: 8, powerKw: 250 }],
-      capacity: 8,
-      availabilityIsRealtime: false,
-      pricing: "请在 Tesla App 查看实时价格",
-      status: "operational",
-      hours: "24/7",
-      updatedAt: SOURCE_CHECK_DATE,
-      lastConfirmedAt: SOURCE_CHECK_DATE,
-      accessNote:
-        "非 Tesla 车辆需要 NACS 适配器；实时空闲与价格以 Tesla App 和现场信息为准。",
-      sources: [
-        {
-          label: "Tesla 官方站点页",
-          url: TESLA_WEST_THIRD,
-          checkedAt: SOURCE_CHECK_DATE,
-        },
-      ],
-      openingHours: "24/7",
-      power: "最高 250 kW",
-      website: TESLA_WEST_THIRD,
-      isTesla: true,
-      source: "fallback",
-    },
-    {
-      id: "osu-car-dc-fast",
-      name: "Ohio State · CAR DC Fast Charger",
-      latitude: 39.9982657,
-      longitude: -83.0327743,
-      address:
-        "Center for Automotive Research · 930 Kinnear Rd, Columbus, OH 43212",
-      operator: "The Ohio State University",
-      networkKind: "other",
-      connectors: [{ type: "other", count: 1 }],
-      capacity: 1,
-      availabilityIsRealtime: false,
-      pricing: "$0.50/kWh（自 2026-03-02）",
-      status: "operational",
-      updatedAt: SOURCE_CHECK_DATE,
-      lastConfirmedAt: SOURCE_CHECK_DATE,
-      accessNote:
-        "官方未公开接口类型、功率或实时空闲状态；以现场停车权限和标识为准。",
-      sources: [
-        {
-          label: "Ohio State TTM 充电站说明",
-          url: OSU_EV_CHARGING,
-          checkedAt: SOURCE_CHECK_DATE,
-        },
-      ],
-      power: "DC 快充（官方未公布功率）",
-      website: OSU_EV_CHARGING,
-      isTesla: false,
-      source: "fallback",
-    },
+    ...stations.filter(
+      (station) =>
+        station.networkKind !== "tesla-supercharger" ||
+        distanceMiles(station, tesla) > 0.35,
+    ),
+    tesla,
   ];
+}
+
+function fallbackStations(): EvStation[] {
+  return mergeCampusStations([staticTeslaStation(), osuCarFastStation()]);
 }
 
 function latestSourceUpdate(stations: EvStation[]) {
@@ -407,7 +542,7 @@ function fallbackResponse(reason?: string) {
     isFallback: true,
     warning:
       reason ??
-      "NLR/AFDC 暂不可用，当前显示经官方页面核对的非实时备用数据。",
+      "NLR/AFDC 暂不可用，当前显示 Ohio State 官方地点资料与用户提供的 Tesla 官方接口快照，均非实时。",
   };
 
   return dataResponse(
@@ -417,7 +552,7 @@ function fallbackResponse(reason?: string) {
   );
 }
 
-async function fetchFreshStations(apiKey: string): Promise<EvStationsResponse> {
+async function fetchAfdcStations(apiKey: string): Promise<EvStation[]> {
   const url = new URL(NLR_NEAREST_URL);
   url.searchParams.set("api_key", apiKey);
   url.searchParams.set("latitude", String(CAMPUS_CENTER.latitude));
@@ -426,7 +561,6 @@ async function fetchFreshStations(apiKey: string): Promise<EvStationsResponse> {
   url.searchParams.set("fuel_type", "ELEC");
   url.searchParams.set("access", "public");
   url.searchParams.set("status", "E");
-  url.searchParams.set("ev_charging_level", "dc_fast");
   url.searchParams.set("country", "US");
   url.searchParams.set("limit", "200");
 
@@ -450,14 +584,88 @@ async function fetchFreshStations(apiKey: string): Promise<EvStationsResponse> {
     .filter((station): station is EvStation => station !== null);
 
   if (!stations.length) {
-    throw new Error("NLR/AFDC 未返回校园附近的公开 DC 快充");
+    throw new Error("NLR/AFDC 未返回校园附近的公开充电站");
   }
+
+  return stations;
+}
+
+async function fetchTeslaStation() {
+  const headers = {
+    Accept: "application/json, text/plain, */*",
+    Referer: TESLA_WEST_THIRD,
+    "User-Agent":
+      "Mozilla/5.0 (compatible; BuckeyeParking/1.0; +https://www.tesla.com/findus)",
+  };
+  const [chargerResponse, locationResponse] = await Promise.all([
+    fetch(TESLA_WEST_THIRD_ENDPOINTS.chargerDetails, {
+      cache: "no-store",
+      headers,
+      signal: AbortSignal.timeout(TESLA_FETCH_TIMEOUT_MS),
+    }),
+    fetch(TESLA_WEST_THIRD_ENDPOINTS.locationDetails, {
+      cache: "no-store",
+      headers,
+      signal: AbortSignal.timeout(TESLA_FETCH_TIMEOUT_MS),
+    }),
+  ]);
+
+  if (!chargerResponse.ok || !locationResponse.ok) {
+    throw new Error(
+      `Tesla 官方接口请求失败（充电 ${chargerResponse.status} / 位置 ${locationResponse.status}）`,
+    );
+  }
+
+  const [chargerPayload, locationPayload]: [unknown, unknown] =
+    await Promise.all([chargerResponse.json(), locationResponse.json()]);
+  return parseTeslaWestThird(
+    chargerPayload,
+    locationPayload,
+    "live",
+    new Date().toISOString(),
+  );
+}
+
+async function fetchFreshStations(apiKey: string): Promise<EvStationsResponse> {
+  const [afdcResult, teslaResult] = await Promise.all([
+    fetchAfdcStations(apiKey)
+      .then((stations) => ({ stations, error: undefined }))
+      .catch((reason: unknown) => ({
+        stations: [] as EvStation[],
+        error:
+          reason instanceof Error ? reason.message : "NLR/AFDC 暂不可用",
+      })),
+    fetchTeslaStation()
+      .then((station) => ({ station, error: undefined }))
+      .catch((reason: unknown) => ({
+        station: staticTeslaStation(),
+        error:
+          reason instanceof Error
+            ? reason.message
+            : "Tesla 官方接口暂不可用",
+      })),
+  ]);
+  const publicStations = afdcResult.stations.length
+    ? afdcResult.stations
+    : [osuCarFastStation()];
+  const stations = mergeCampusStations(
+    mergeTeslaStation(publicStations, teslaResult.station),
+  );
+  const warnings = [
+    afdcResult.error
+      ? `${afdcResult.error}；附近第三方站点暂以 Ohio State 官方清单补位`
+      : undefined,
+    teslaResult.error
+      ? `${teslaResult.error}；Tesla 当前显示用户提供的官方接口快照，价格与拥挤度已明确标为非实时`
+      : undefined,
+  ].filter((warning): warning is string => Boolean(warning));
 
   return {
     stations,
     generatedAt: new Date().toISOString(),
     sourceUpdatedAt: latestSourceUpdate(stations),
-    isFallback: false,
+    isFallback: warnings.length > 0,
+    ...(warnings.length ? { warning: `${warnings.join("；")}。` } : {}),
   };
 }
 
@@ -477,11 +685,16 @@ function refreshStations(apiKey: string) {
 
 export async function GET() {
   const now = Date.now();
-  if (successfulCache && now - successfulCache.cachedAt < SUCCESS_CACHE_TTL) {
+  const cacheTtl = successfulCache?.payload.isFallback
+    ? PARTIAL_FALLBACK_CACHE_TTL
+    : SUCCESS_CACHE_TTL;
+  if (successfulCache && now - successfulCache.cachedAt < cacheTtl) {
     return dataResponse(
       successfulCache.payload,
-      "memory-cache",
-      "public, s-maxage=3600, stale-while-revalidate=21600",
+      successfulCache.payload.isFallback ? "fallback" : "memory-cache",
+      successfulCache.payload.isFallback
+        ? "public, s-maxage=300, stale-while-revalidate=900"
+        : "public, s-maxage=3600, stale-while-revalidate=21600",
     );
   }
 
@@ -492,8 +705,10 @@ export async function GET() {
     const payload = await refreshStations(apiKey);
     return dataResponse(
       payload,
-      "fresh",
-      "public, s-maxage=3600, stale-while-revalidate=21600",
+      payload.isFallback ? "fallback" : "fresh",
+      payload.isFallback
+        ? "public, s-maxage=300, stale-while-revalidate=900"
+        : "public, s-maxage=3600, stale-while-revalidate=21600",
     );
   } catch (reason: unknown) {
     const message =
@@ -524,7 +739,7 @@ export async function GET() {
     }
 
     return fallbackResponse(
-      `${message}，当前显示经官方页面核对的非实时备用数据。`,
+      `${message}，当前显示 Ohio State 官方地点资料与用户提供的 Tesla 官方接口快照，均非实时。`,
     );
   }
 }

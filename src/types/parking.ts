@@ -56,8 +56,11 @@ export type ParkingFilters = {
 
 export type UserPreferences = {
   permitCode: string;
+  /** Coarse, local-only filter; never sent to an account or backend. */
+  parkingIdentity: UserParkingIdentity;
   favorites: number[];
   evMode: boolean;
   mapTransitVisible: boolean;
   dismissedWelcome: boolean;
 };
+import type { UserParkingIdentity } from "@/data/permits";

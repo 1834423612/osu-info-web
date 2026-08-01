@@ -8,7 +8,20 @@ import {
   occupancyLabel,
   occupancyLevel,
 } from "@/lib/utils";
+import type { ParkingAccessDecision } from "@/lib/permit-access";
 import type { ParkingLocation } from "@/types/parking";
+
+export type ParkingAccessPresentation = Pick<
+  ParkingAccessDecision,
+  "status" | "title" | "detail" | "nextAccessLabel" | "requiresPayment"
+>;
+
+function accessIcon(status: ParkingAccessPresentation["status"]) {
+  if (status === "included") return "solar:shield-check-bold";
+  if (status === "later") return "solar:clock-circle-bold";
+  if (status === "visitor-paid") return "solar:wallet-money-bold";
+  return "solar:forbidden-circle-bold";
+}
 
 function accessLabel(type: number) {
   if (type === 2) return "停车证通行";
@@ -19,11 +32,13 @@ function accessLabel(type: number) {
 export function ParkingCard({
   location,
   selected,
+  access,
   onSelect,
   onToggleFavorite,
 }: {
   location: ParkingLocation;
   selected: boolean;
+  access?: ParkingAccessPresentation;
   onSelect: () => void;
   onToggleFavorite: () => void;
 }) {
@@ -68,6 +83,22 @@ export function ParkingCard({
             </p>
           </div>
         </div>
+
+        {access && (
+          <div
+            className={`parking-access-strip parking-access-strip--${access.status}`}
+            aria-label={`${access.title}。${access.detail}`}
+          >
+            <Icon icon={accessIcon(access.status)} />
+            <span>
+              <strong>{access.title}</strong>
+              <small title={access.detail}>
+                {access.nextAccessLabel || access.detail}
+              </small>
+            </span>
+            {access.requiresPayment && <em>需付费</em>}
+          </div>
+        )}
 
         <div className="parking-card__metrics">
           <div className="parking-card__available">

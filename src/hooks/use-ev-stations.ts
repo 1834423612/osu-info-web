@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import type { EvStation, EvStationsResponse } from "@/types/ev";
 
-const CACHE_KEY = "buckeye-parking:ev-stations:v2";
+const CACHE_KEY = "buckeye-parking:ev-stations:v3";
 const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
 const REFRESH_INTERVAL = 15 * 60 * 1000;
 const EV_STATIONS_ENDPOINT = "/api/ev/stations";
@@ -30,6 +30,12 @@ const NETWORK_KINDS = new Set([
   "evgo",
   "other",
 ]);
+const CHARGING_SPEEDS = new Set([
+  "level-1",
+  "level-2",
+  "dc-fast",
+  "unknown",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -37,6 +43,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStation(value: unknown): value is EvStation {
   if (!isRecord(value)) return false;
+
+  const chargingSpeedsAreValid =
+    value.chargingSpeeds === undefined ||
+    (Array.isArray(value.chargingSpeeds) &&
+      value.chargingSpeeds.every(
+        (speed) => typeof speed === "string" && CHARGING_SPEEDS.has(speed),
+      ));
+  const teslaDetailsAreValid =
+    value.teslaDetails === undefined ||
+    (isRecord(value.teslaDetails) &&
+      typeof value.teslaDetails.locationSlug === "string" &&
+      (value.teslaDetails.dataState === "live" ||
+        value.teslaDetails.dataState === "static-snapshot") &&
+      typeof value.teslaDetails.fetchedAt === "string" &&
+      Array.isArray(value.teslaDetails.pricing) &&
+      Array.isArray(value.teslaDetails.amenities) &&
+      isRecord(value.teslaDetails.congestionByDay));
 
   return (
     typeof value.id === "string" &&
@@ -52,7 +75,9 @@ function isStation(value: unknown): value is EvStation {
     typeof value.status === "string" &&
     Array.isArray(value.sources) &&
     typeof value.isTesla === "boolean" &&
-    typeof value.source === "string"
+    typeof value.source === "string" &&
+    chargingSpeedsAreValid &&
+    teslaDetailsAreValid
   );
 }
 

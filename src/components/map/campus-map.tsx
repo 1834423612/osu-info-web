@@ -12,6 +12,7 @@ import type {
 } from "maplibre-gl";
 
 import { getPermitZoneMeta } from "@/lib/permit-map";
+import type { ParkingAccessPresentation } from "@/components/parking-card";
 import {
   Map as MapCNMap,
   MapControls,
@@ -44,12 +45,12 @@ const CABS_DIRECTION_LAYER_ID = "campus-cabs-routes-direction";
 const CABS_DIRECTION_IMAGE_ID = "campus-cabs-direction-arrow";
 const PARKING_GROUP_FILL_PAINT: FillLayerSpecification["paint"] = {
   "fill-color": ["get", "groupColor"],
-  "fill-opacity": 0.1,
+  "fill-opacity": ["get", "fillOpacity"],
 };
 const PARKING_GROUP_LINE_PAINT: LineLayerSpecification["paint"] = {
   "line-color": ["get", "groupColor"],
-  "line-opacity": 0.85,
-  "line-width": 2.2,
+  "line-opacity": ["get", "lineOpacity"],
+  "line-width": ["get", "lineWidth"],
   "line-dasharray": [2, 1.4],
 };
 const PERMIT_AREA_FILL_PAINT: FillLayerSpecification["paint"] = {
@@ -85,6 +86,9 @@ export type CampusMapProps = {
   showTransit?: boolean;
   evStations?: EvStation[];
   showEv?: boolean;
+  selectedEvStationId?: string;
+  onSelectEvStation?: (id: string) => void;
+  parkingAccessById?: Readonly<Record<number, ParkingAccessPresentation>>;
   permitAreas: FeatureCollection;
   showPermitAreas?: boolean;
   expandedPermitZones?: string[];
@@ -215,13 +219,20 @@ function getPermitLotRepresentatives(
 
 function PermitLotPopup({ lot }: { lot: PermitLotRepresentative }) {
   const sourceUrl = safeHttpsUrl(lot.link, "https://osu.campusparc.com");
+  const meta = getPermitZoneMeta(lot.code);
 
   return (
     <div className="map-info-popup map-info-popup--permit">
-      <small>{lot.code} · 具体停车区域</small>
+      <small>{meta?.shortNameZh ?? lot.code} · {lot.code}</small>
       <strong>{lot.name}</strong>
+      {meta && <p>{meta.descriptionZh}</p>}
       {(lot.usage || lot.visitorParking) && (
-        <p>{[lot.usage, lot.visitorParking].filter(Boolean).join(" · ")}</p>
+        <div>
+          {lot.usage && <span>{lot.usage}</span>}
+          {lot.visitorParking && (
+            <span className="is-warning">访客：{lot.visitorParking}</span>
+          )}
+        </div>
       )}
       {lot.areaCount > 1 && <span>同名区域共 {lot.areaCount} 处</span>}
       {sourceUrl && (
@@ -303,9 +314,11 @@ function createDirectionArrowImage(): ImageData {
 function ParkingMarker({
   location,
   selected,
+  access,
 }: {
   location: ParkingLocation;
   selected: boolean;
+  access?: ParkingAccessPresentation;
 }) {
   const level = occupancyLevel(location.UsePercentage);
   const visual =
@@ -348,15 +361,29 @@ function ParkingMarker({
   return (
     <button
       type="button"
-      className={`parking-map-marker occupancy-${level}${selected ? " is-selected" : ""}${location.Closed ? " is-closed" : ""}`}
+      className={`parking-map-marker occupancy-${level}${selected ? " is-selected" : ""}${location.Closed ? " is-closed" : ""}${access ? ` access-${access.status}` : ""}`}
       style={
         {
-          "--parking-marker-color": visual.color,
-          "--parking-marker-background": visual.background,
+          "--parking-marker-color":
+            access?.status === "unavailable"
+              ? "#94a3b8"
+              : access?.status === "later"
+                ? "#b7791f"
+                : access?.status === "visitor-paid"
+                  ? "#c2410c"
+                  : visual.color,
+          "--parking-marker-background":
+            access?.status === "unavailable"
+              ? "#cbd5e1"
+              : access?.status === "later"
+                ? "#b7791f"
+                : access?.status === "visitor-paid"
+                  ? "#c2410c"
+                  : visual.background,
         } as React.CSSProperties
       }
-      aria-label={`${location.GarageName}，${visual.accessLabel}，${location.available} 个估算空位`}
-      title={`${visual.accessLabel} · ${location.available} 个估算空位`}
+      aria-label={`${location.GarageName}，${access?.title ?? visual.accessLabel}，${location.available} 个估算空位`}
+      title={`${access?.title ?? visual.accessLabel}${access?.nextAccessLabel ? ` · ${access.nextAccessLabel}` : ""} · ${location.available} 个估算空位`}
     >
       <span className="parking-map-marker__icon">
         {location.kind === "surface" ? (
@@ -372,6 +399,21 @@ function ParkingMarker({
       <span className="parking-map-marker__count">
         {location.Closed ? "关" : location.available}
       </span>
+      {access && (
+        <span className="parking-map-marker__access" aria-hidden="true">
+          <Icon
+            icon={
+              access.status === "included"
+                ? "solar:shield-check-bold"
+                : access.status === "later"
+                  ? "solar:clock-circle-bold"
+                  : access.status === "visitor-paid"
+                    ? "solar:wallet-money-bold"
+                    : "solar:lock-keyhole-bold"
+            }
+          />
+        </span>
+      )}
     </button>
   );
 }
@@ -634,6 +676,9 @@ function CampusMapRuntime({
   showTransit = false,
   evStations = [],
   showEv = false,
+  selectedEvStationId,
+  onSelectEvStation,
+  parkingAccessById,
   permitAreas,
   showPermitAreas = true,
   expandedPermitZones = [],
@@ -642,6 +687,7 @@ function CampusMapRuntime({
   const { map } = useMap();
   const mapRef = useRef<MapLibreMap | null>(map);
   const lastFocusedSelectedIdRef = useRef<number | undefined>(undefined);
+  const lastFocusedEvStationIdRef = useRef<string | undefined>(undefined);
   const didFitPermitPreviewRef = useRef(false);
   const isPermitPreview = variant === "permit-preview";
   const expandedPermitZoneKey = [...expandedPermitZones].sort().join(",");
@@ -728,6 +774,11 @@ function CampusMapRuntime({
   );
   const selectedLongitude = selectedLocation?.longitude;
   const selectedLatitude = selectedLocation?.latitude;
+  const selectedEvStation = evStations.find(
+    (station) => station.id === selectedEvStationId,
+  );
+  const selectedEvLongitude = selectedEvStation?.longitude;
+  const selectedEvLatitude = selectedEvStation?.latitude;
 
   useEffect(() => {
     const map = mapRef.current;
@@ -752,6 +803,37 @@ function CampusMapRuntime({
       offset: [0, -60],
     });
   }, [isPermitPreview, selectedId, selectedLatitude, selectedLongitude]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (selectedEvStationId === undefined) {
+      lastFocusedEvStationIdRef.current = undefined;
+      return;
+    }
+    if (
+      !map ||
+      !showEv ||
+      isPermitPreview ||
+      selectedEvLongitude === undefined ||
+      selectedEvLatitude === undefined ||
+      lastFocusedEvStationIdRef.current === selectedEvStationId
+    ) {
+      return;
+    }
+    lastFocusedEvStationIdRef.current = selectedEvStationId;
+    map.easeTo({
+      center: [selectedEvLongitude, selectedEvLatitude],
+      zoom: Math.max(map.getZoom(), 14.6),
+      duration: 650,
+      offset: [0, -48],
+    });
+  }, [
+    isPermitPreview,
+    selectedEvLatitude,
+    selectedEvLongitude,
+    selectedEvStationId,
+    showEv,
+  ]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -908,6 +990,7 @@ function CampusMapRuntime({
             <ParkingMarker
               location={location}
               selected={location.GarageId === selectedId}
+              access={parkingAccessById?.[location.GarageId]}
             />
           </MarkerContent>
         </MapMarker>
@@ -988,12 +1071,13 @@ function CampusMapRuntime({
               longitude={station.longitude}
               latitude={station.latitude}
               anchor="bottom"
+              onClick={() => onSelectEvStation?.(station.id)}
             >
               <MarkerContent>
                 <button
                   type="button"
                   className={
-                    `ev-map-marker${isTesla ? " is-tesla" : " is-third-party"}`
+                    `ev-map-marker${isTesla ? " is-tesla" : " is-third-party"}${station.id === selectedEvStationId ? " is-selected" : ""}`
                   }
                   aria-label={`${station.name}，${station.capacity ?? "未知数量"} 个充电端口`}
                   aria-haspopup="dialog"

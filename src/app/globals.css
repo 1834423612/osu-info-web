@@ -630,11 +630,18 @@ button.metric-card:hover {
 
 .sidebar-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   border-bottom: 1px solid var(--line);
   padding: 9px 10px;
   background: var(--surface-soft);
+}
+
+.ev-panel-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sidebar-tabs button {
@@ -1492,6 +1499,61 @@ button.metric-card:hover {
   color: var(--red) !important;
 }
 
+.map-legend .access-key {
+  border-right: 1px solid var(--line);
+  padding-right: 9px;
+  font-weight: 750;
+}
+
+.map-legend .access-key--later {
+  color: #9a6700;
+}
+
+.map-legend .access-key--included {
+  color: var(--green);
+}
+
+.map-legend .access-key--included i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: #31a46c;
+}
+
+.map-legend .access-key--paid {
+  color: #c2410c;
+}
+
+.map-legend .access-key--paid i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: #c2410c;
+}
+
+.map-legend .access-key--later i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid #b7791f;
+  border-radius: 3px;
+  background: repeating-linear-gradient(
+    -45deg,
+    #fef3c7 0 2px,
+    #d9a441 2px 3px
+  );
+}
+
+.map-legend .access-key--unavailable {
+  color: #64748b;
+}
+
+.map-legend .access-key--unavailable i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: #cbd5e1;
+}
+
 .list-toolbar label {
   display: flex;
   align-items: center;
@@ -1743,6 +1805,96 @@ button.metric-card:hover {
   height: 12px;
   flex: 0 0 auto;
   color: var(--muted-2);
+}
+
+.parking-access-strip {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  border: 1px solid var(--access-border, #cfe8dc);
+  border-radius: 9px;
+  padding: 6px 7px;
+  color: var(--access-ink, #145a3c);
+  background: var(--access-bg, var(--green-soft));
+}
+
+.parking-access-strip > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--access-icon, var(--green));
+}
+
+.parking-access-strip > span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.parking-access-strip strong {
+  flex: 0 0 auto;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.parking-access-strip small {
+  overflow: hidden;
+  color: var(--access-detail, currentColor);
+  font-size: 7px;
+  font-weight: 620;
+  opacity: 0.82;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parking-access-strip em {
+  border-radius: 999px;
+  padding: 2px 5px;
+  color: #fff;
+  background: var(--access-icon, var(--green));
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.parking-access-strip--included,
+.access-callout--included {
+  --access-border: #b9dfca;
+  --access-bg: #edf9f2;
+  --access-icon: #168252;
+  --access-ink: #125d3d;
+  --access-detail: #39745b;
+}
+
+.parking-access-strip--later,
+.access-callout--later {
+  --access-border: #efd38a;
+  --access-bg: #fff8e5;
+  --access-icon: #a56b00;
+  --access-ink: #765000;
+  --access-detail: #846621;
+}
+
+.parking-access-strip--visitor-paid,
+.access-callout--visitor-paid {
+  --access-border: #fdc5a6;
+  --access-bg: #fff2eb;
+  --access-icon: #d14b16;
+  --access-ink: #943514;
+  --access-detail: #a85433;
+}
+
+.parking-access-strip--unavailable,
+.access-callout--unavailable {
+  --access-border: #d7dce2;
+  --access-bg: #f2f4f6;
+  --access-icon: #6c737e;
+  --access-ink: #4f5661;
+  --access-detail: #707782;
 }
 
 .parking-card__metrics {
@@ -3121,6 +3273,66 @@ button.metric-card:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.parking-map-marker.access-unavailable {
+  color: #64748b;
+  filter: saturate(0.35);
+  opacity: 0.78;
+}
+
+.parking-map-marker.access-unavailable .parking-map-marker__count {
+  color: #334155;
+}
+
+.parking-map-marker.access-later {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgb(255 255 255 / 0%) 0 5px,
+    rgb(255 255 255 / 18%) 5px 9px
+  );
+}
+
+.parking-map-marker.access-visitor-paid {
+  box-shadow:
+    0 8px 18px -6px rgb(10 15 20 / 48%),
+    0 0 0 2px rgb(255 237 213 / 85%);
+}
+
+.parking-map-marker__access {
+  position: absolute;
+  bottom: -8px;
+  left: -7px;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  color: var(--parking-marker-color);
+  background: #fff;
+  box-shadow: 0 2px 6px rgb(10 15 20 / 22%);
+}
+
+.parking-map-marker__access svg {
+  width: 9px;
+  height: 9px;
+}
+
+.parking-map-marker.access-included .parking-map-marker__access {
+  color: #168252;
+}
+
+.parking-map-marker.access-later .parking-map-marker__access {
+  color: #a56b00;
+}
+
+.parking-map-marker.access-visitor-paid .parking-map-marker__access {
+  color: #d14b16;
+}
+
+.parking-map-marker.access-unavailable .parking-map-marker__access {
+  color: #64748b;
+}
+
 .transit-map-marker {
   position: relative;
   z-index: 7;
@@ -3663,11 +3875,26 @@ button.metric-card:hover {
   transition: filter 150ms, scale 150ms, translate 150ms;
 }
 
-.ev-map-marker:hover {
+.ev-map-marker:hover,
+.ev-map-marker.is-selected {
   z-index: 10;
   filter: saturate(1.12);
   scale: 1.1;
   translate: 0 -2px;
+}
+
+.ev-map-marker.is-selected {
+  box-shadow:
+    0 10px 22px -5px rgb(10 15 20 / 55%),
+    0 0 0 4px rgb(255 255 255 / 72%),
+    0 0 0 6px rgb(23 105 170 / 35%);
+}
+
+.ev-map-marker.is-tesla.is-selected {
+  box-shadow:
+    0 10px 22px -5px rgb(10 15 20 / 55%),
+    0 0 0 4px rgb(255 255 255 / 72%),
+    0 0 0 6px rgb(210 38 48 / 34%);
 }
 
 .ev-map-marker svg {
@@ -4548,34 +4775,70 @@ button.metric-card:hover {
 }
 
 .access-callout {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 9px;
   margin-top: 12px;
-  border: 1px solid #cfe8dc;
+  border: 1px solid var(--access-border, #cfe8dc);
   border-radius: 12px;
   padding: 11px;
-  background: var(--green-soft);
+  background: var(--access-bg, var(--green-soft));
 }
 
 .access-callout > svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-  color: var(--green);
+  color: var(--access-icon, var(--green));
 }
 
 .access-callout strong {
   display: block;
-  color: #145a3c;
+  color: var(--access-ink, #145a3c);
   font-size: 9px;
 }
 
 .access-callout p {
   margin: 4px 0 0;
-  color: #386f58;
+  color: var(--access-detail, #386f58);
   font-size: 8px;
   line-height: 1.5;
+}
+
+.access-callout > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.access-callout__next {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: var(--access-ink, #145a3c);
+  background: rgb(255 255 255 / 68%);
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.access-callout__next svg {
+  width: 12px;
+  height: 12px;
+}
+
+.access-callout__payment {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 4px 6px;
+  color: #fff;
+  background: var(--access-icon, var(--green));
+  font-size: 7px;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .detail-info-list {
@@ -4772,6 +5035,78 @@ button.metric-card:hover {
   border-right: 1px solid var(--line);
   padding: 14px;
   background: var(--surface-soft);
+}
+
+.permit-identity-selector {
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 11px;
+  background: #fff;
+}
+
+.permit-identity-selector > div:first-child {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 9px;
+}
+
+.permit-identity-selector strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.permit-identity-selector small,
+.permit-identity-selector > p {
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.permit-identity-selector > div[role="group"] {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.permit-identity-selector button {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 5px 7px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.permit-identity-selector button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.permit-identity-selector button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.permit-identity-selector button.is-active {
+  border-color: rgb(186 12 47 / 28%);
+  color: var(--scarlet);
+  background: rgb(186 12 47 / 7%);
+}
+
+.permit-identity-selector > p {
+  margin: 8px 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
 }
 
 .permit-choice {

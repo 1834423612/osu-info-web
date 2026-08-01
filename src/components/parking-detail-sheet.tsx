@@ -3,6 +3,7 @@
 import { Icon } from "@iconify/react";
 import { useEffect, useRef, useState } from "react";
 
+import type { ParkingAccessPresentation } from "@/components/parking-card";
 import { OccupancyRing } from "@/components/ui/occupancy-ring";
 import { CABS_ROUTE_LABELS } from "@/data/parking-locations";
 import { formatCampusModified } from "@/lib/parking-feed";
@@ -34,8 +35,16 @@ function accessText(type: number) {
   };
 }
 
+function accessIcon(status: ParkingAccessPresentation["status"]) {
+  if (status === "included") return "solar:shield-check-bold";
+  if (status === "later") return "solar:clock-circle-bold";
+  if (status === "visitor-paid") return "solar:wallet-money-bold";
+  return "solar:forbidden-circle-bold";
+}
+
 export function ParkingDetailSheet({
   location,
+  access,
   permitName,
   permitMessage,
   nearestFastCharger,
@@ -44,6 +53,7 @@ export function ParkingDetailSheet({
   onToggleFavorite,
 }: {
   location?: ParkingLocation;
+  access?: ParkingAccessPresentation;
   permitName: string;
   permitMessage: string;
   nearestFastCharger?: EvStation;
@@ -129,7 +139,7 @@ export function ParkingDetailSheet({
 
   if (!location) return null;
 
-  const access = accessText(location.GarageType);
+  const fallbackAccess = accessText(location.GarageType);
 
   return (
     <div className="detail-layer detail-layer--workspace">
@@ -225,12 +235,34 @@ export function ParkingDetailSheet({
                 <p>{permitName}</p>
               </div>
             </div>
-            <div className="access-callout">
-              <Icon icon="solar:verified-check-bold" />
+            <div
+              className={cn(
+                "access-callout",
+                access && `access-callout--${access.status}`,
+              )}
+            >
+              <Icon
+                icon={
+                  access
+                    ? accessIcon(access.status)
+                    : "solar:verified-check-bold"
+                }
+              />
               <div>
-                <strong>{access.title}</strong>
-                <p>{permitMessage || access.detail}</p>
+                <strong>{access?.title ?? fallbackAccess.title}</strong>
+                <p>
+                  {access?.detail || permitMessage || fallbackAccess.detail}
+                </p>
+                {access?.nextAccessLabel && (
+                  <span className="access-callout__next">
+                    <Icon icon="solar:calendar-mark-bold" />
+                    {access.nextAccessLabel}
+                  </span>
+                )}
               </div>
+              {access?.requiresPayment && (
+                <span className="access-callout__payment">需按访客标准付费</span>
+              )}
             </div>
           </section>
 

@@ -1,0 +1,623 @@
+.panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.heading > div {
+  min-width: 0;
+}
+
+.heading small {
+  color: #be123c;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.heading h2 {
+  margin: 4px 0 0;
+  color: #172033;
+  font-size: 22px;
+  letter-spacing: -0.035em;
+}
+
+.heading p {
+  max-width: 540px;
+  margin: 6px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.heading > button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  border: 1px solid #d7dce3;
+  border-radius: 10px;
+  background: #fff;
+  color: #344054;
+  padding: 0 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.heading > button[aria-pressed="true"] {
+  border-color: #fda4af;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.heading > button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #f5f7f9;
+}
+
+.filters button {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #667085;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.filters button span {
+  min-width: 18px;
+  border-radius: 999px;
+  background: #e4e7ec;
+  padding: 2px 5px;
+  color: #475467;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.filters .activeFilter {
+  background: #fff;
+  color: #101828;
+  box-shadow: 0 1px 4px rgb(16 24 40 / 9%);
+}
+
+.filters .activeFilter span {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.warningNotice,
+.errorNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid #fedf89;
+  border-radius: 11px;
+  background: #fffaeb;
+  color: #7a2e0e;
+  padding: 10px 11px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.errorNotice {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.warningNotice svg,
+.errorNotice svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.dataLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #98a2b3;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.stationList {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stationCard {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  background: #fff;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.expandedCard {
+  border-color: #fda4af;
+  box-shadow: 0 8px 24px rgb(16 24 40 / 8%);
+}
+
+.stationSummary {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 42px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 11px;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.networkIcon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: #e9f4ff;
+  color: #1570b8;
+}
+
+.networkIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.teslaIcon {
+  background: #fee4e2;
+  color: #d92d20;
+}
+
+.stationName {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stationName small {
+  overflow: hidden;
+  color: #98a2b3;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stationName strong {
+  overflow: hidden;
+  color: #1d2939;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stationName em {
+  overflow: hidden;
+  color: #667085;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capacity {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.capacity strong {
+  color: #101828;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.capacity small {
+  margin-top: 3px;
+  color: #98a2b3;
+  font-size: 9px;
+}
+
+.chevron {
+  width: 17px;
+  height: 17px;
+  color: #98a2b3;
+  transition: transform 150ms ease;
+}
+
+.stationSummary[aria-expanded="true"] .chevron {
+  transform: rotate(180deg);
+}
+
+.stationDetails {
+  border-top: 1px solid #eaecf0;
+  padding: 12px;
+  background: #fcfcfd;
+}
+
+.stationDetails dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.stationDetails dl > div {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.stationDetails dt {
+  color: #98a2b3;
+  font-weight: 700;
+}
+
+.stationDetails dd {
+  min-width: 0;
+  margin: 0;
+  color: #344054;
+}
+
+.accessNote {
+  margin: 10px 0 0;
+  border-left: 3px solid #84caff;
+  background: #eff8ff;
+  color: #175cd3;
+  padding: 8px 9px;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.stationDetails > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  color: #98a2b3;
+  font-size: 9px;
+}
+
+.stationDetails > footer div {
+  display: flex;
+  gap: 10px;
+}
+
+.stationDetails > footer a {
+  color: #1570ef;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.teslaPricing {
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.teslaPricing > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+.teslaPricing > header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.teslaPricing > header strong {
+  color: #1d2939;
+  font-size: 12px;
+}
+
+.teslaPricing > header span {
+  color: #667085;
+  font-size: 9px;
+}
+
+.liveDot,
+.snapshotDot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border: 3px solid #d1fadf;
+  border-radius: 50%;
+  background: #12b76a;
+  box-sizing: content-box;
+}
+
+.snapshotDot {
+  border-color: #fef0c7;
+  background: #f79009;
+}
+
+.adapterNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 10px 10px;
+  border-radius: 9px;
+  background: #f2f4f7;
+  color: #344054;
+  padding: 9px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.adapterNote svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.teslaPricing details {
+  border-top: 1px solid #eaecf0;
+}
+
+.teslaPricing summary {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  color: #1d2939;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.teslaPricing summary::-webkit-details-marker {
+  display: none;
+}
+
+.teslaPricing summary svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 150ms ease;
+}
+
+.teslaPricing details[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.priceChart {
+  padding: 0 10px 11px;
+}
+
+.priceSegments {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #eaecf0;
+  border-radius: 8px 8px 0 0;
+  background: #f9fafb;
+}
+
+.priceSegments > div {
+  display: flex;
+  min-width: 48px;
+  flex-basis: 0;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid #eaecf0;
+  padding: 7px 4px;
+  text-align: center;
+}
+
+.priceSegments > div:last-child {
+  border-right: 0;
+}
+
+.priceSegments strong {
+  color: #344054;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.priceSegments span {
+  color: #98a2b3;
+  font-size: 7px;
+  white-space: nowrap;
+}
+
+.congestionChart {
+  display: grid;
+  height: 66px;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  align-items: end;
+  gap: 2px;
+  border-bottom: 1px dashed #d0d5dd;
+  padding: 9px 4px 0;
+  background:
+    linear-gradient(to bottom, rgb(249 250 251 / 80%), rgb(255 255 255 / 90%));
+}
+
+.congestionChart i {
+  min-height: 5px;
+  border-radius: 3px 3px 0 0;
+  background: #d0d5dd;
+}
+
+.congestionChart .currentBar {
+  background: #d92d20;
+}
+
+.chartAxis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: #98a2b3;
+  font-size: 7px;
+}
+
+.congestionFee,
+.emptyPricing {
+  margin: 9px 0 0;
+  color: #667085;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.congestionFee strong {
+  color: #344054;
+}
+
+.forecastNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  border-top: 1px solid #eaecf0;
+  background: #f9fafb;
+  color: #667085;
+  padding: 9px 11px;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.forecastNote svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 1px;
+}
+
+.emptyState {
+  display: flex;
+  min-height: 150px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #d0d5dd;
+  border-radius: 14px;
+  color: #98a2b3;
+  text-align: center;
+}
+
+.emptyState svg {
+  width: 28px;
+  height: 28px;
+}
+
+.emptyState strong {
+  margin-top: 7px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.emptyState span {
+  margin-top: 3px;
+  font-size: 10px;
+}
+
+@media (max-width: 560px) {
+  .panel {
+    gap: 12px;
+    padding: 13px;
+  }
+
+  .heading {
+    align-items: flex-end;
+  }
+
+  .heading h2 {
+    font-size: 19px;
+  }
+
+  .heading p {
+    display: none;
+  }
+
+  .heading > button {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .filters button {
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+  }
+
+  .stationSummary {
+    grid-template-columns: 38px minmax(0, 1fr) auto 16px;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .networkIcon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .capacity {
+    display: none;
+  }
+
+  .priceSegments span {
+    display: none;
+  }
+}

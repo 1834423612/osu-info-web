@@ -11,6 +11,7 @@ import {
   type ParkingMapGroupId,
 } from "@/lib/parking-map-groups";
 import { cn } from "@/lib/utils";
+import type { ParkingAccessPresentation } from "@/components/parking-card";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
 import type { TransitFeed } from "@/types/transit";
@@ -48,6 +49,9 @@ export type CampusParkingMapProps = {
   showTransit?: boolean;
   evStations?: EvStation[];
   showEv?: boolean;
+  selectedEvStationId?: string;
+  onSelectEvStation?: (id: string) => void;
+  parkingAccessById?: Readonly<Record<number, ParkingAccessPresentation>>;
   permitLayer: PermitMapLayer;
   className?: string;
 };
@@ -195,7 +199,9 @@ export function CampusParkingMap({
                 <b>{meta.code}</b>
                 <span>
                   <strong>{meta.shortNameZh}</strong>
-                  <small>{expanded ? "已显示具体地点" : "点击显示具体地点"}</small>
+                  <small>
+                    {meta.audienceZh} · {expanded ? "已展开" : "点击细分"}
+                  </small>
                 </span>
                 <Icon icon="solar:alt-arrow-right-linear" />
               </button>

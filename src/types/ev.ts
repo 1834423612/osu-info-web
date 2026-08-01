@@ -19,6 +19,61 @@ export type EvStationStatus =
   | "planned"
   | "unknown";
 
+export type EvChargingSpeed =
+  | "level-1"
+  | "level-2"
+  | "dc-fast"
+  | "unknown";
+
+export type EvTeslaDataState = "live" | "static-snapshot";
+
+export type EvPricePeriod = {
+  /** Local time at the charging site, in HH:mm format. */
+  startTime: string;
+  /** Local time at the charging site, in HH:mm format. */
+  endTime: string;
+  /** Tesla weekday numbers (0 = Sunday through 6 = Saturday). */
+  days: number[];
+  rate: number;
+  currencyCode: string;
+  unit: "kWh" | "minute" | string;
+};
+
+export type EvTeslaPriceAudience = {
+  audience: "tesla-member" | "non-tesla";
+  baseRate?: number;
+  periods: EvPricePeriod[];
+  congestionFee?: EvPricePeriod;
+};
+
+export type EvTeslaDetails = {
+  locationSlug: string;
+  /** `live` means fetched from Tesla by this server response. */
+  dataState: EvTeslaDataState;
+  fetchedAt: string;
+  sourceUpdatedAt?: string;
+  timeZone: string;
+  openToNonTeslas?: boolean;
+  adapterRequiredForNonTesla?: boolean;
+  adapterNote?: string;
+  commonSiteName?: string;
+  amenities: string[];
+  pricing: EvTeslaPriceAudience[];
+  /** Expected hourly congestion, not live free-stall availability. */
+  congestionByDay: Partial<
+    Record<
+      | "sunday"
+      | "monday"
+      | "tuesday"
+      | "wednesday"
+      | "thursday"
+      | "friday"
+      | "saturday",
+      number[]
+    >
+  >;
+};
+
 export type EvConnector = {
   type: EvConnectorType;
   /** Number of ports for this connector and power combination. */
@@ -41,6 +96,7 @@ export type EvStation = {
   operator?: string;
   networkKind: EvNetworkKind;
   connectors: EvConnector[];
+  chargingSpeeds?: EvChargingSpeed[];
   /** Number of vehicles that can charge simultaneously, when published. */
   capacity?: number;
   /** Only populated by a source that actually publishes live port status. */
@@ -54,6 +110,12 @@ export type EvStation = {
   lastConfirmedAt?: string;
   accessNote?: string;
   sources: EvSourceLink[];
+  teslaDetails?: EvTeslaDetails;
+  /** Present for OSU-published Level 2 locations. */
+  campusLocation?: {
+    garageId: number;
+    name: string;
+  };
 
   /** Compatibility fields used by the existing map and detail views. */
   openingHours?: string;
