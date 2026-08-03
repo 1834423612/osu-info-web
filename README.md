@@ -60,7 +60,7 @@ data/tesla-snapshots/   # 人工核验的 Tesla 官方 GET 快照
 
 ## 环境变量
 
-无需环境变量即可运行。可按 [.env.example](./.env.example) 覆盖 CampusParc 或 CABS 上游地址。EV 浏览器直连默认使用 `DEMO_KEY`，生产部署可配置浏览器可见的 `NEXT_PUBLIC_NLR_API_KEY`；同源回退优先使用不会下发浏览器的 `NLR_API_KEY`，其次才使用 public key 或 `DEMO_KEY`。
+无需环境变量即可运行。可按 [.env.example](./.env.example) 覆盖 CampusParc 或 CABS 上游地址。EV 浏览器直连默认使用 `DEMO_KEY`，生产部署可配置浏览器可见的 `NEXT_PUBLIC_NLR_API_KEY`；同源回退优先使用不会下发浏览器的 `NLR_API_KEY`，其次才使用 public key 或 `DEMO_KEY`。NLR 返回 `Retry-After` 时，浏览器和服务器都会遵守该时间，不会在限流窗口内反复重试。
 
 Tesla 两个详情接口依次尝试浏览器和服务器 GET。服务器使用与正常 Chrome 同形的只读 GET 请求头，可通过仅服务端可见的 `TESLA_BROWSER_USER_AGENT` 覆盖 UA。若部署服务器出口也被 Akamai 拒绝，可配置 `TESLA_FETCH_PROXY_URL`；路由会向该受信任出口发送 `GET <proxy>?url=<encoded official Tesla URL>`，可选用 `TESLA_FETCH_PROXY_TOKEN` 作为 Bearer token。代理目标始终来自应用内 Tesla 白名单，客户端不能提供任意上游 URL。Node 原生 `fetch` 不保证自动采用 `HTTPS_PROXY`，因此这里使用显式的受信任出口配置。无论哪一层失败，接口响应都会保留逐上游 HTTP 状态并明确标记快照，绝不会把代理或快照伪称为 Tesla 实时成功。
 

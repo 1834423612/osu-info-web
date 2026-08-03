@@ -75,8 +75,12 @@ function configuredNlrKey() {
   );
 }
 
-function nlrFailureCooldown() {
-  return configuredNlrKey() === "DEMO_KEY" ? 15 * 60 * 1000 : 60 * 1000;
+function nlrFailureCooldown(diagnostic: EvUpstreamStatus) {
+  const base =
+    diagnostic.status === 429 || diagnostic.failureKind === "rate-limit"
+      ? 60 * 60 * 1000
+      : 60 * 1000;
+  return Math.max(base, (diagnostic.retryAfterSeconds ?? 0) * 1000);
 }
 
 function requestId() {
@@ -124,6 +128,17 @@ function sanitizedFailureMessage(reason: unknown) {
   }
   if (reason instanceof Error) return reason.message.slice(0, 220);
   return "未知网络错误";
+}
+
+function retryAfterSeconds(response: Response) {
+  const raw = response.headers.get("retry-after");
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+  const at = Date.parse(raw);
+  return Number.isNaN(at)
+    ? undefined
+    : Math.max(0, Math.ceil((at - Date.now()) / 1000));
 }
 
 function trustedTeslaProxyUrl(upstream: URL | string) {
@@ -201,7 +216,7 @@ async function fetchJson(
           ? teslaBrowserRequestHeaders(stationId)
           : {
               "User-Agent":
-                "BuckeyeParking/1.0 (+https://ttm.osu.edu/)",
+                "Mozilla/5.0 (compatible; BuckeyeParking/1.0; +https://ttm.osu.edu/)",
             }),
         ...(trustedProxy && process.env.TESLA_FETCH_PROXY_TOKEN
           ? {
@@ -213,6 +228,7 @@ async function fetchJson(
     });
     const durationMs = Date.now() - startedAt;
     if (!response.ok) {
+      const requestedCooldown = retryAfterSeconds(response);
       return {
         ok: false,
         diagnostic: {
@@ -224,6 +240,9 @@ async function fetchJson(
           durationMs,
           stationId,
           cache: "miss",
+          ...(requestedCooldown !== undefined
+            ? { retryAfterSeconds: requestedCooldown }
+            : {}),
           ...(service.startsWith("tesla") &&
           (response.status === 403 || response.status === 429)
             ? { failureKind: "edge-challenge" as const }
@@ -353,6 +372,10 @@ async function getNlrStations(): Promise<NlrResult> {
     };
   }
   if (nlrFailureUntil > now && nlrLastFailure) {
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((nlrFailureUntil - now) / 1000),
+    );
     if (nlrCache && nlrCache.staleUntil > now) {
       return {
         stations: nlrCache.value,
@@ -360,6 +383,7 @@ async function getNlrStations(): Promise<NlrResult> {
         diagnostic: {
           ...nlrLastFailure,
           cache: "stale",
+          retryAfterSeconds,
           message: `${nlrLastFailure.message ?? "NLR 请求失败"}；服务器返回最近一次可用缓存`,
         },
       };
@@ -367,7 +391,8 @@ async function getNlrStations(): Promise<NlrResult> {
     return {
       diagnostic: {
         ...nlrLastFailure,
-        message: `${nlrLastFailure.message ?? "NLR 请求失败"}；服务器正在短暂冷却，避免重复触发上游限制`,
+        retryAfterSeconds,
+        message: `${nlrLastFailure.message ?? "NLR 请求失败"}；服务器正按上游限流窗口冷却，避免重复请求`,
       },
     };
   }
@@ -375,19 +400,29 @@ async function getNlrStations(): Promise<NlrResult> {
     nlrInFlight = requestNlrUpstream()
       .then((result) => {
         if (!result.stations) {
-          nlrLastFailure = result.diagnostic;
-          nlrFailureUntil = Date.now() + nlrFailureCooldown();
+          const now = Date.now();
+          const cooldown = nlrFailureCooldown(result.diagnostic);
+          const diagnostic: EvUpstreamStatus = {
+            ...result.diagnostic,
+            ...(result.diagnostic.status === 429 ||
+            result.diagnostic.failureKind === "rate-limit"
+              ? { retryAfterSeconds: Math.ceil(cooldown / 1000) }
+              : {}),
+          };
+          nlrLastFailure = diagnostic;
+          nlrFailureUntil = now + cooldown;
           if (nlrCache && nlrCache.staleUntil > Date.now()) {
             return {
               stations: nlrCache.value,
               stale: true,
               diagnostic: {
-                ...result.diagnostic,
+                ...diagnostic,
                 cache: "stale" as const,
-                message: `${result.diagnostic.message ?? "NLR 请求失败"}；服务器返回最近一次可用缓存`,
+                message: `${diagnostic.message ?? "NLR 请求失败"}；服务器返回最近一次可用缓存`,
               },
             };
           }
+          return { diagnostic };
         }
         return result;
       })
@@ -505,6 +540,17 @@ function json(
   id: string,
   source: string,
 ) {
+  const retryAfter = payload.upstreams
+    ?.filter(
+      (diagnostic) =>
+        diagnostic.status === 429 &&
+        diagnostic.retryAfterSeconds !== undefined,
+    )
+    .reduce(
+      (longest, diagnostic) =>
+        Math.max(longest, diagnostic.retryAfterSeconds ?? 0),
+      0,
+    );
   return NextResponse.json(payload, {
     status,
     headers: {
@@ -518,6 +564,9 @@ function json(
       "X-EV-Source": source,
       "X-EV-Upstream-State":
         status === 200 && !payload.isFallback ? "success" : "degraded",
+      ...(status === 429 && retryAfter
+        ? { "Retry-After": String(retryAfter) }
+        : {}),
     },
   });
 }
@@ -552,6 +601,7 @@ export async function GET(request: NextRequest) {
       console.error("[EV proxy] NLR request failed", {
         requestId: id,
         status: result.diagnostic.status,
+        retryAfterSeconds: result.diagnostic.retryAfterSeconds,
         message: result.diagnostic.message,
       });
       return json(
@@ -564,7 +614,7 @@ export async function GET(request: NextRequest) {
           upstreams: [result.diagnostic],
           requestId: id,
         },
-        502,
+        result.diagnostic.status === 429 ? 429 : 502,
         id,
         source,
       );

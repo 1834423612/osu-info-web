@@ -22,16 +22,21 @@ import type {
   EvUpstreamStatus,
 } from "@/types/ev";
 
-const CACHE_KEY = `buckeye-parking:ev-stations:v7:${TESLA_SNAPSHOT_CHECKED_AT}`;
-const REQUEST_GUARD_KEY = "buckeye-parking:ev-stations-request:v2";
+// Keep NLR's cache identity independent from the manually updated Tesla
+// snapshot. Tying these together caused every Tesla update to discard a valid
+// NLR response and immediately spend another rate-limited API request.
+const CACHE_KEY = "buckeye-parking:ev-stations:v6";
+const LEGACY_CACHE_PREFIX = "buckeye-parking:ev-stations:v7:";
+const REQUEST_GUARD_KEY = "buckeye-parking:ev-stations-request:v3";
 const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
 const STALE_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const NLR_API_KEY =
   process.env.NEXT_PUBLIC_NLR_API_KEY ||
   process.env.NEXT_PUBLIC_NREL_API_KEY ||
   "DEMO_KEY";
-const FAILED_REQUEST_COOLDOWN =
-  NLR_API_KEY === "DEMO_KEY" ? 15 * 60 * 1000 : 60 * 1000;
+const DEFAULT_FAILURE_COOLDOWN = 60 * 1000;
+const RATE_LIMIT_COOLDOWN = 60 * 60 * 1000;
+const CROSS_TAB_REQUEST_GUARD = 2 * 60 * 1000;
 const NLR_TIMEOUT_MS = 18_000;
 const TESLA_TIMEOUT_MS = 15_000;
 const PROXY_TIMEOUT_MS = 25_000;
@@ -157,6 +162,10 @@ function isUpstreamStatus(value: unknown): value is EvUpstreamStatus {
     typeof value.ok === "boolean" &&
     typeof value.attemptedAt === "string" &&
     (value.status === undefined || typeof value.status === "number") &&
+    (value.retryAfterSeconds === undefined ||
+      (typeof value.retryAfterSeconds === "number" &&
+        Number.isFinite(value.retryAfterSeconds) &&
+        value.retryAfterSeconds >= 0)) &&
     (value.failureKind === undefined ||
       (typeof value.failureKind === "string" &&
         UPSTREAM_FAILURE_KINDS.has(value.failureKind))) &&
@@ -181,24 +190,104 @@ function isStationsResponse(value: unknown): value is EvStationsResponse {
   );
 }
 
+function syncBundledTeslaSnapshot(payload: EvStationsResponse) {
+  const station = payload.stations.find(
+    (candidate) => candidate.id === "afdc-320148",
+  );
+  if (
+    !station ||
+    station.teslaDetails?.dataState !== "static-snapshot" ||
+    station.teslaDetails.fetchedAt === TESLA_SNAPSHOT_CHECKED_AT
+  ) {
+    return payload;
+  }
+  const stations = mergeStationById(
+    payload.stations,
+    teslaWestThirdSnapshot(station),
+  );
+  return {
+    ...payload,
+    stations,
+    sourceUpdatedAt: latestStationUpdate(stations),
+  };
+}
+
+function cachedKeys() {
+  const legacy = Array.from({ length: localStorage.length }, (_, index) =>
+    localStorage.key(index),
+  ).filter(
+    (key): key is string =>
+      typeof key === "string" && key.startsWith(LEGACY_CACHE_PREFIX),
+  );
+  return [CACHE_KEY, ...legacy];
+}
+
 function readCache(maxAge = CACHE_MAX_AGE): CachedStations | null {
   if (typeof window === "undefined") return null;
   try {
-    const saved = localStorage.getItem(CACHE_KEY);
-    if (!saved) return null;
-    const parsed: unknown = JSON.parse(saved);
-    if (
-      !isRecord(parsed) ||
-      typeof parsed.savedAt !== "number" ||
-      Date.now() - parsed.savedAt > maxAge ||
-      !isStationsResponse(parsed.payload)
-    ) {
-      console.warn("[EV] 已忽略过期或格式不兼容的浏览器缓存", {
-        cacheKey: CACHE_KEY,
+    const candidates: Array<CachedStations & { key: string }> = [];
+    for (const key of cachedKeys()) {
+      const saved = localStorage.getItem(key);
+      if (!saved) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(saved);
+      } catch (reason: unknown) {
+        console.warn("[EV] 已忽略无法解析的浏览器缓存", {
+          cacheKey: key,
+          reason,
+        });
+        continue;
+      }
+      if (
+        !isRecord(parsed) ||
+        typeof parsed.savedAt !== "number" ||
+        Date.now() - parsed.savedAt > maxAge ||
+        !isStationsResponse(parsed.payload)
+      ) {
+        console.warn("[EV] 已忽略过期或格式不兼容的浏览器缓存", {
+          cacheKey: key,
+        });
+        continue;
+      }
+      candidates.push({
+        key,
+        savedAt: parsed.savedAt,
+        payload: syncBundledTeslaSnapshot(parsed.payload),
       });
-      return null;
     }
-    return { savedAt: parsed.savedAt, payload: parsed.payload };
+    const selected = candidates.sort((left, right) => {
+      const leftHasNlr = left.payload.stations.some(
+        (station) => station.source === "afdc",
+      );
+      const rightHasNlr = right.payload.stations.some(
+        (station) => station.source === "afdc",
+      );
+      return Number(rightHasNlr) - Number(leftHasNlr) ||
+        right.savedAt - left.savedAt;
+    })[0];
+    if (!selected) return null;
+    const synchronized = JSON.stringify({
+      payload: selected.payload,
+      savedAt: selected.savedAt,
+    });
+    try {
+      if (selected.key !== CACHE_KEY) {
+        localStorage.setItem(CACHE_KEY, synchronized);
+        console.info("[EV] 已迁移旧版浏览器缓存，未重新请求 NLR", {
+          from: selected.key,
+          to: CACHE_KEY,
+        });
+      } else {
+        const original = localStorage.getItem(CACHE_KEY);
+        if (original !== synchronized) {
+          localStorage.setItem(CACHE_KEY, synchronized);
+        }
+      }
+    } catch (reason: unknown) {
+      console.warn("[EV] 缓存迁移写入失败，当前缓存仍可使用", reason);
+    }
+    return { savedAt: selected.savedAt, payload: selected.payload };
   } catch (reason: unknown) {
     console.warn("[EV] 无法解析浏览器缓存", reason);
     return null;
@@ -215,30 +304,86 @@ function writeCache(payload: EvStationsResponse) {
   return savedAt;
 }
 
-function readLastAttempt() {
+function readRequestGuard() {
   try {
     const parsed: unknown = JSON.parse(
       localStorage.getItem(REQUEST_GUARD_KEY) ?? "null",
     );
-    return isRecord(parsed) && typeof parsed.at === "number" ? parsed.at : 0;
+    return isRecord(parsed) &&
+      typeof parsed.until === "number" &&
+      typeof parsed.owner === "string"
+      ? { until: parsed.until, owner: parsed.owner }
+      : undefined;
   } catch (reason: unknown) {
     console.warn("[EV] 无法读取请求冷却记录", reason);
-    return 0;
+    return undefined;
   }
 }
 
-function markRequestAttempt() {
+function readBlockedUntil() {
+  return readRequestGuard()?.until ?? 0;
+}
+
+function setRequestGuard(until: number, reason: string, owner: string) {
   try {
     localStorage.setItem(
       REQUEST_GUARD_KEY,
       JSON.stringify({
-        at: Date.now(),
+        until,
+        owner,
         keyMode: NLR_API_KEY === "DEMO_KEY" ? "demo" : "configured",
+        reason,
       }),
     );
   } catch (reason: unknown) {
     console.warn("[EV] 无法写入请求冷却记录", reason);
   }
+}
+
+function updateOwnedRequestGuard(
+  owner: string,
+  until: number,
+  reason: string,
+) {
+  if (readRequestGuard()?.owner === owner) {
+    setRequestGuard(until, reason, owner);
+  }
+}
+
+function clearOwnedRequestGuard(owner: string) {
+  try {
+    if (readRequestGuard()?.owner === owner) {
+      localStorage.removeItem(REQUEST_GUARD_KEY);
+    }
+  } catch (reason: unknown) {
+    console.warn("[EV] 无法清除请求冷却记录", reason);
+  }
+}
+
+function retryAfterSeconds(response: Response) {
+  const raw = response.headers.get("retry-after");
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+  const at = Date.parse(raw);
+  return Number.isNaN(at)
+    ? undefined
+    : Math.max(0, Math.ceil((at - Date.now()) / 1000));
+}
+
+function failedRequestCooldown(upstreams: EvUpstreamStatus[]) {
+  const rateLimits = upstreams.filter(
+    (diagnostic) =>
+      diagnostic.service === "nlr" &&
+      (diagnostic.status === 429 || diagnostic.failureKind === "rate-limit"),
+  );
+  if (!rateLimits.length) return DEFAULT_FAILURE_COOLDOWN;
+  return Math.max(
+    RATE_LIMIT_COOLDOWN,
+    ...rateLimits.map(
+      (diagnostic) => (diagnostic.retryAfterSeconds ?? 0) * 1000,
+    ),
+  );
 }
 
 function stateFromPayload(
@@ -294,6 +439,8 @@ function logDiagnostic(diagnostic: EvUpstreamStatus, stationCount?: number) {
     transport: diagnostic.transport,
     ok: diagnostic.ok,
     status: diagnostic.status,
+    failureKind: diagnostic.failureKind,
+    retryAfterSeconds: diagnostic.retryAfterSeconds,
     stationId: diagnostic.stationId,
     durationMs: diagnostic.durationMs,
     cache: diagnostic.cache,
@@ -332,9 +479,13 @@ async function browserJson(
       cache: "miss" as const,
     };
     if (!response.ok) {
+      const requestedCooldown = retryAfterSeconds(response);
       const diagnostic: EvUpstreamStatus = {
         ...base,
         ok: false,
+        ...(requestedCooldown !== undefined
+          ? { retryAfterSeconds: requestedCooldown }
+          : {}),
         ...(service.startsWith("tesla") &&
         (response.status === 403 || response.status === 429)
           ? { failureKind: "edge-challenge" as const }
@@ -666,20 +817,40 @@ function refreshStations() {
   if (freshCache) return Promise.resolve(freshCache.payload);
   if (refreshInFlight) return refreshInFlight;
 
-  const sinceLastAttempt = Date.now() - readLastAttempt();
-  if (sinceLastAttempt < FAILED_REQUEST_COOLDOWN) {
+  const blockedUntil = readBlockedUntil();
+  if (blockedUntil > Date.now()) {
     return Promise.reject(
       new EvDataError(
-        `为遵守 NLR 速率限制，失败后 ${Math.ceil((FAILED_REQUEST_COOLDOWN - sinceLastAttempt) / 60_000)} 分钟内不重复请求`,
+        `为避免重复请求并遵守 NLR 速率限制，将在 ${Math.ceil((blockedUntil - Date.now()) / 60_000)} 分钟后再请求`,
       ),
     );
   }
 
-  markRequestAttempt();
+  const guardOwner = globalThis.crypto.randomUUID();
+  setRequestGuard(
+    Date.now() + CROSS_TAB_REQUEST_GUARD,
+    "正在由另一个页面获取 NLR 数据",
+    guardOwner,
+  );
   refreshInFlight = fetchFreshStations()
     .then((payload) => {
       writeCache(payload);
+      clearOwnedRequestGuard(guardOwner);
       return payload;
+    })
+    .catch((reason: unknown) => {
+      const error =
+        reason instanceof EvDataError
+          ? reason
+          : new EvDataError(
+              reason instanceof Error ? reason.message : "NLR 请求失败",
+            );
+      updateOwnedRequestGuard(
+        guardOwner,
+        Date.now() + failedRequestCooldown(error.upstreams),
+        error.message,
+      );
+      throw error;
     })
     .finally(() => {
       refreshInFlight = undefined;
@@ -733,6 +904,13 @@ export function useEvStations() {
             : localFallback(message, upstreams),
           stale ? undefined : message,
         );
+        const retryAt = readBlockedUntil();
+        if (active && retryAt > Date.now()) {
+          expiryTimer = window.setTimeout(
+            () => void refresh(),
+            Math.max(1_000, retryAt - Date.now()),
+          );
+        }
       }
     };
 

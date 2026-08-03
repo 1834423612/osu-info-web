@@ -52,6 +52,8 @@ export type EvUpstreamStatus = {
   status?: number;
   stationId?: string;
   durationMs?: number;
+  /** Upstream-requested cooldown, sanitized from Retry-After. */
+  retryAfterSeconds?: number;
   cache?: "miss" | "fresh" | "stale";
   failureKind?: EvUpstreamFailureKind;
   message?: string;
