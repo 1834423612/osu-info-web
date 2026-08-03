@@ -17,6 +17,8 @@
 # local files
 .DS_Store
 *.pem
+/data-example/Find Us _ Tesla.html
+/data-example/Find Us _ Tesla_files/
 
 # debug
 npm-debug.log*

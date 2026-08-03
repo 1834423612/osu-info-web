@@ -30,6 +30,7 @@ npm start
 - CABS：服务器路由聚合 `https://content.osu.edu/v2/bus` 的当前线路、线形与车辆；所选线路车辆每 15 秒刷新。线路代码不写死，停运时 0 辆车属于正常状态。
 - 停车证区域：先按本地身份筛选可购证件，再按所选证件与当前美东时段查询 Ohio State FITS ArcGIS 的 Parking 图层。地图用绿色、条纹琥珀、橙色和浅灰分别显示证件已含、稍后可停、访客计费和当前不可停。
 - EV：浏览器优先用 GET 从 NLR/美国能源部 AFDC API 读取校园中心 5 英里内全部公开运营的 Level 1、Level 2 与 DC 快充（`limit=all`），并解析其价格字段；直连失败会自动调用同源 `GET /api/ev/stations`。浏览器和服务器均有 6 小时缓存，服务器另有单飞、短期失败冷却及请求限流，避免共享出口反复消耗 NLR 配额。范围内 Tesla 站点也先直连两个官方 GET，再尝试同源服务器出口；所有上游状态会分别显示并写入控制台。Tesla 仍返回 403 时，West 3rd 使用明确标为非实时的官方快照，其他站保留 NLR 资料，绝不把典型拥挤度写成实时空闲枪位。
+- Tesla 手动快照：服务器出口持续被 Akamai 拒绝时，可按 [Tesla 价格快照更新说明](./docs/tesla-snapshot-update.md) 在已正常打开的 Tesla 站点页中执行只读导出命令；程序读取 `data/tesla-snapshots/18647` 下的两个 JSON。命令不保存 Cookie、请求头、HAR 或浏览器指纹。
 - 时间：所有停车权限以 `America/New_York` 判断。设备处于其他时区时，界面同时显示 Columbus ET 与用户本地时间。
 
 ## 隐私
@@ -54,6 +55,7 @@ src/
   hooks/                # 实时停车、CABS、EV 与本地偏好
   lib/                  # 数据校验、时区/占用格式、polyline 解码
   types/                # 数据结构
+data/tesla-snapshots/   # 人工核验的 Tesla 官方 GET 快照
 ```
 
 ## 环境变量

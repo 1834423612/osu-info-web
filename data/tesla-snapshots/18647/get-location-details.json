@@ -1,4 +1,9 @@
 {
+    "_snapshot": {
+        "capturedAt": "2026-08-01T00:00:00-04:00",
+        "locationSlug": "18647",
+        "sourceUrl": "https://www.tesla.com/api/findus/get-location-details?locationSlug=18647&functionTypes=nacs&locale=en_US&isInHkMoTw=false"
+    },
     "data": {
         "marketing": {
             "address_notes": null,

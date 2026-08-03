@@ -23,7 +23,6 @@ import {
   useMap,
 } from "@/components/ui/map";
 import {
-  buildParkingGroupRegion,
   parkingMapGroupIdForLocation,
   type ParkingMapGroupId,
 } from "@/lib/parking-map-groups";
@@ -54,16 +53,6 @@ const CABS_HALO_LAYER_ID = "campus-cabs-routes-halo";
 const CABS_LINE_LAYER_ID = "campus-cabs-routes-line";
 const CABS_DIRECTION_LAYER_ID = "campus-cabs-routes-direction";
 const CABS_DIRECTION_IMAGE_ID = "campus-cabs-direction-arrow";
-const PARKING_GROUP_FILL_PAINT: FillLayerSpecification["paint"] = {
-  "fill-color": ["get", "groupColor"],
-  "fill-opacity": ["get", "fillOpacity"],
-};
-const PARKING_GROUP_LINE_PAINT: LineLayerSpecification["paint"] = {
-  "line-color": ["get", "groupColor"],
-  "line-opacity": ["get", "lineOpacity"],
-  "line-width": ["get", "lineWidth"],
-  "line-dasharray": [2, 1.4],
-};
 const PERMIT_AREA_FILL_PAINT: FillLayerSpecification["paint"] = {
   "fill-color": ["get", "zoneColor"],
   "fill-opacity": ["get", "fillOpacity"],
@@ -96,6 +85,9 @@ export type CampusMapProps = {
   activeRoutes?: string[];
   selectedTransitRoute?: string;
   showTransit?: boolean;
+  showTransitVehicles?: boolean;
+  showTransitRoutes?: boolean;
+  showTransitEndpoints?: boolean;
   evStations?: EvStation[];
   showEv?: boolean;
   selectedEvStationId?: string;
@@ -107,6 +99,7 @@ export type CampusMapProps = {
   /** Empty means every permit area is unavailable in the selected rule window. */
   availablePermitZones?: readonly string[];
   expandedParkingGroup?: ParkingMapGroupId;
+  showParkingLocations?: boolean;
   className?: string;
 };
 
@@ -734,6 +727,9 @@ function CampusMapRuntime({
   activeRoutes = [],
   selectedTransitRoute,
   showTransit = false,
+  showTransitVehicles = showTransit,
+  showTransitRoutes = showTransit,
+  showTransitEndpoints = showTransit,
   evStations = [],
   showEv = false,
   selectedEvStationId,
@@ -744,6 +740,7 @@ function CampusMapRuntime({
   expandedPermitZones = [],
   availablePermitZones,
   expandedParkingGroup,
+  showParkingLocations = true,
 }: CampusMapProps) {
   const { map } = useMap();
   const mapRef = useRef<MapLibreMap | null>(map);
@@ -825,10 +822,6 @@ function CampusMapRuntime({
       buildTransitRouteEndpointFeatureCollection(selectedTransitRouteData),
     [selectedTransitRouteData],
   );
-  const parkingGroupRegion = useMemo(
-    () => buildParkingGroupRegion(expandedParkingGroup, locations),
-    [expandedParkingGroup, locations],
-  );
   const permitAreaData = useMemo<FeatureCollection>(
     () => ({
       type: "FeatureCollection",
@@ -858,19 +851,25 @@ function CampusMapRuntime({
                   zoneAvailable: available,
                   zoneColor: available ? meta.color : "#9a4b5c",
                   zoneOutline: available ? meta.outlineColor : "#6f2e3c",
-                  fillOpacity: available
-                    ? expandedPermitZoneSet.size === 0
-                      ? isPermitPreview
+                  // The live map should describe the exact GIS lot edge, not
+                  // paint another broad colored region over an already dense
+                  // map. The permit picker keeps a little more fill because
+                  // comparing zones is its primary purpose.
+                  fillOpacity: isPermitPreview
+                    ? available
+                      ? expandedPermitZoneSet.has(meta.code)
                         ? 0.3
-                        : 0.21
+                        : 0.18
                       : expandedPermitZoneSet.has(meta.code)
-                        ? 0.34
-                        : 0.1
-                    : expandedPermitZoneSet.has(meta.code)
-                      ? 0.18
-                      : isPermitPreview
-                        ? 0.105
-                        : 0.075,
+                        ? 0.13
+                        : 0.065
+                    : available
+                      ? expandedPermitZoneSet.has(meta.code)
+                        ? 0.045
+                        : 0
+                      : expandedPermitZoneSet.has(meta.code)
+                        ? 0.035
+                        : 0,
                   lineOpacity: available ? 0.86 : 0.72,
                   lineWidth: available ? 1.4 : 1.8,
                 },
@@ -960,7 +959,12 @@ function CampusMapRuntime({
     const selectedRouteIsVisible = activeRoutes.some(
       (code) => code.trim().toUpperCase() === normalizedSelectedRoute,
     );
-    if (!normalizedSelectedRoute || !selectedRouteIsVisible || !showTransit) {
+    if (
+      !normalizedSelectedRoute ||
+      !selectedRouteIsVisible ||
+      !showTransit ||
+      (!showTransitRoutes && !showTransitEndpoints)
+    ) {
       lastFocusedTransitRouteRef.current = undefined;
       return;
     }
@@ -1005,6 +1009,8 @@ function CampusMapRuntime({
     selectedTransitRoute,
     selectedTransitRouteData,
     showTransit,
+    showTransitEndpoints,
+    showTransitRoutes,
   ]);
 
   useEffect(() => {
@@ -1049,14 +1055,14 @@ function CampusMapRuntime({
           mapReady: Boolean(map),
           styleLoaded: map?.isStyleLoaded() ?? false,
           isPermitPreview,
-          showTransit,
+          showTransit: showTransit && showTransitRoutes,
           activeRoutes,
           detailRoutes: Object.keys(transitFeed.details),
           featureCount: transitRouteData.features.length,
         }),
       );
     }
-    if (!map || isPermitPreview || !showTransit) return;
+    if (!map || isPermitPreview || !showTransit || !showTransitRoutes) return;
     if (transitRouteData.features.length === 0) return;
 
     let active = true;
@@ -1227,6 +1233,7 @@ function CampusMapRuntime({
     activeRoutes,
     isPermitPreview,
     showTransit,
+    showTransitRoutes,
     transitFeed.details,
     transitRouteData,
   ]);
@@ -1243,10 +1250,18 @@ function CampusMapRuntime({
         ? []
         : locations.filter(
             (location) =>
-              parkingMapGroupIdForLocation(location) ===
-                expandedParkingGroup || location.GarageId === selectedId,
+              location.GarageId === selectedId ||
+              (showParkingLocations &&
+                parkingMapGroupIdForLocation(location) ===
+                  expandedParkingGroup),
           ),
-    [expandedParkingGroup, isPermitPreview, locations, selectedId],
+    [
+      expandedParkingGroup,
+      isPermitPreview,
+      locations,
+      selectedId,
+      showParkingLocations,
+    ],
   );
   const expandedPermitLots = useMemo(
     () =>
@@ -1293,14 +1308,6 @@ function CampusMapRuntime({
           }
         />
       )}
-      {!isPermitPreview && (
-        <MapGeoJSON
-          id="campus-parking-group-region"
-          data={parkingGroupRegion}
-          fillPaint={PARKING_GROUP_FILL_PAINT}
-          linePaint={PARKING_GROUP_LINE_PAINT}
-        />
-      )}
       {visibleParkingLocations.map((location) => (
         <MapMarker
           key={location.GarageId}
@@ -1344,11 +1351,12 @@ function CampusMapRuntime({
       ))}
       {!isPermitPreview &&
         showTransit &&
+        showTransitEndpoints &&
         selectedTransitRouteEndpoints.features.map((feature) => {
           const [longitude, latitude] = feature.geometry.coordinates;
           const endpoint = feature.properties;
-          const horizontalOffset = endpoint.patternIndex % 2 === 0 ? -18 : 18;
-          const verticalOffset = endpoint.endpoint === "start" ? -5 : 7;
+          const horizontalOffset = endpoint.patternIndex % 2 === 0 ? -8 : 8;
+          const verticalOffset = endpoint.endpoint === "start" ? -2 : 3;
           return (
             <MapMarker
               key={String(feature.id)}
@@ -1365,6 +1373,7 @@ function CampusMapRuntime({
         })}
       {!isPermitPreview &&
         showTransit &&
+        showTransitVehicles &&
         visibleTransitVehicles.map((vehicle) => {
           const color = routeColors[vehicle.routeCode] ?? "#334155";
           const info = deriveTransitVehicleMapInfo(vehicle, transitFeed);

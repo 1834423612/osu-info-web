@@ -16,6 +16,11 @@ const defaults: UserPreferences = {
   favorites: [],
   evMode: false,
   mapTransitVisible: true,
+  mapPermitAreasVisible: true,
+  mapParkingLocationsVisible: true,
+  mapTransitVehiclesVisible: true,
+  mapTransitRoutesVisible: true,
+  mapTransitEndpointsVisible: true,
   dismissedWelcome: false,
 };
 
@@ -33,10 +38,37 @@ export function useLocalPreferences() {
           typeof saved?.permitCode === "string"
             ? saved.permitCode
             : defaults.permitCode;
+        const mapTransitVisible =
+          typeof saved?.mapTransitVisible === "boolean"
+            ? saved.mapTransitVisible
+            : defaults.mapTransitVisible;
         setPreferences({
           ...defaults,
           ...saved,
           permitCode,
+          mapTransitVisible,
+          mapPermitAreasVisible:
+            typeof saved?.mapPermitAreasVisible === "boolean"
+              ? saved.mapPermitAreasVisible
+              : defaults.mapPermitAreasVisible,
+          mapParkingLocationsVisible:
+            typeof saved?.mapParkingLocationsVisible === "boolean"
+              ? saved.mapParkingLocationsVisible
+              : defaults.mapParkingLocationsVisible,
+          // Before granular controls existed, mapTransitVisible represented
+          // the entire CABS layer. Preserve that choice for older snapshots.
+          mapTransitVehiclesVisible:
+            typeof saved?.mapTransitVehiclesVisible === "boolean"
+              ? saved.mapTransitVehiclesVisible
+              : mapTransitVisible,
+          mapTransitRoutesVisible:
+            typeof saved?.mapTransitRoutesVisible === "boolean"
+              ? saved.mapTransitRoutesVisible
+              : mapTransitVisible,
+          mapTransitEndpointsVisible:
+            typeof saved?.mapTransitEndpointsVisible === "boolean"
+              ? saved.mapTransitEndpointsVisible
+              : mapTransitVisible,
           parkingIdentity: isUserParkingIdentity(saved?.parkingIdentity)
             ? saved.parkingIdentity
             : inferIdentityForPermitSelection(permitCode),

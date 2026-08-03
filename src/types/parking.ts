@@ -61,6 +61,11 @@ export type UserPreferences = {
   favorites: number[];
   evMode: boolean;
   mapTransitVisible: boolean;
+  mapPermitAreasVisible: boolean;
+  mapParkingLocationsVisible: boolean;
+  mapTransitVehiclesVisible: boolean;
+  mapTransitRoutesVisible: boolean;
+  mapTransitEndpointsVisible: boolean;
   dismissedWelcome: boolean;
 };
 import type { UserParkingIdentity } from "@/data/permits";

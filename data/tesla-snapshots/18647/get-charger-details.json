@@ -1,4 +1,9 @@
 {
+    "_snapshot": {
+        "capturedAt": "2026-08-01T00:00:00-04:00",
+        "locationSlug": "18647",
+        "sourceUrl": "https://www.tesla.com/api/findus/get-charger-details?locationSlug=18647&programType=supercharger&locale=en-US&isInHkMoTw=false"
+    },
     "data": {
         "data": {
             "name": "Columbus, OH – West 3rd Avenue",

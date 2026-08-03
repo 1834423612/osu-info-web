@@ -11,7 +11,10 @@ import {
   normalizeAfdcPayload,
 } from "@/lib/ev-stations";
 import { parseTeslaStation, teslaDetailsEndpoints } from "@/lib/tesla-ev";
-import { teslaWestThirdSnapshot } from "@/lib/tesla-snapshot";
+import {
+  TESLA_SNAPSHOT_CHECKED_AT,
+  teslaWestThirdSnapshot,
+} from "@/lib/tesla-snapshot";
 import type {
   EvStation,
   EvStationsResponse,
@@ -19,7 +22,7 @@ import type {
   EvUpstreamStatus,
 } from "@/types/ev";
 
-const CACHE_KEY = "buckeye-parking:ev-stations:v6";
+const CACHE_KEY = `buckeye-parking:ev-stations:v7:${TESLA_SNAPSHOT_CHECKED_AT}`;
 const REQUEST_GUARD_KEY = "buckeye-parking:ev-stations-request:v2";
 const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
 const STALE_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;

@@ -19,6 +19,12 @@ import type { ParkingAccessPresentation } from "@/components/parking-card";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
 import type { TransitFeed } from "@/types/transit";
+import {
+  MapLayerSettingsDock,
+  type MapLayerSettingItem,
+  type MapLayerSettingKey,
+  type MapLayerVisibility,
+} from "./map-layer-settings";
 import type {
   CampusMapProps,
   CampusMapVariant,
@@ -64,6 +70,11 @@ export type CampusParkingMapProps = {
   onSelectEvStation?: (id: string) => void;
   parkingAccessById?: Readonly<Record<number, ParkingAccessPresentation>>;
   permitLayer: PermitMapLayer;
+  mapLayerVisibility?: Partial<MapLayerVisibility>;
+  onMapLayerVisibilityChange?: (
+    layer: MapLayerSettingKey,
+    visible: boolean,
+  ) => void;
   className?: string;
 };
 
@@ -131,6 +142,8 @@ function PermitPeriodSwitcher({
 export function CampusParkingMap({
   variant = "default",
   permitLayer,
+  mapLayerVisibility,
+  onMapLayerVisibilityChange,
   className,
   ...mapProps
 }: CampusParkingMapProps) {
@@ -146,9 +159,11 @@ export function CampusParkingMap({
   }>({ layerKey, zones: [] });
   const [expandedParkingGroup, setExpandedParkingGroup] =
     useState<ParkingMapGroupId>();
-  const [parkingToolsOpen, setParkingToolsOpen] = useState(false);
   const [parkingLocationsOpen, setParkingLocationsOpen] = useState(false);
   const [permitAccessOpen, setPermitAccessOpen] = useState(false);
+  const [localLayerVisibility, setLocalLayerVisibility] = useState<
+    Partial<MapLayerVisibility>
+  >({});
   const permitPeriodKey = permitLayer.permitCode ?? "none";
   const [localPeriodState, setLocalPeriodState] = useState<{
     permitKey: string;
@@ -195,10 +210,124 @@ export function CampusParkingMap({
     (total, group) => total + group.count,
     0,
   );
+  const layerVisible = useCallback(
+    (layer: MapLayerSettingKey, fallback: boolean) =>
+      mapLayerVisibility?.[layer] ??
+      localLayerVisibility[layer] ??
+      fallback,
+    [localLayerVisibility, mapLayerVisibility],
+  );
+  const chargingStationsVisible = layerVisible(
+    "chargingStations",
+    mapProps.showEv ?? false,
+  );
+  const permitAreasVisible = layerVisible("permitAreas", permitLayer.visible);
+  const parkingLocationsVisible = layerVisible("parkingLocations", true);
+  const transitVehiclesVisible = layerVisible(
+    "transitVehicles",
+    mapProps.showTransit ?? false,
+  );
+  const transitRoutesVisible = layerVisible(
+    "transitRoutes",
+    mapProps.showTransit ?? false,
+  );
+  const transitEndpointsVisible = layerVisible(
+    "transitEndpoints",
+    mapProps.showTransit ?? false,
+  );
+  const transitLayersVisible =
+    transitVehiclesVisible || transitRoutesVisible || transitEndpointsVisible;
+  const setLayerVisible = useCallback(
+    (layer: MapLayerSettingKey, visible: boolean) => {
+      if (!mapLayerVisibility || mapLayerVisibility[layer] === undefined) {
+        setLocalLayerVisibility((current) => ({ ...current, [layer]: visible }));
+      }
+      onMapLayerVisibilityChange?.(layer, visible);
+    },
+    [mapLayerVisibility, onMapLayerVisibilityChange],
+  );
   const showPermitAccess = Boolean(
-    permitLayer.visible && permitLayer.permitCode && zones.length > 0,
+    permitAreasVisible && permitLayer.permitCode && zones.length > 0,
   );
   const permitAreaCount = permitLayer.areas.features.length;
+  const mapLayerItems = useMemo<readonly MapLayerSettingItem[]>(
+    () => [
+      {
+        id: "chargingStations",
+        group: "parking",
+        label: "充电站",
+        detail: `${mapProps.evStations?.length ?? 0} 个站点`,
+        icon: "solar:bolt-circle-bold-duotone",
+        tone: "green",
+        visible: chargingStationsVisible,
+      },
+      {
+        id: "permitAreas",
+        group: "parking",
+        label: "停车证区域",
+        detail: permitLayer.permitCode
+          ? `${permitLayer.permitCode} · ${activeZones.length} 个当前可用证区`
+          : "设置停车证后可用",
+        icon: "solar:ticket-bold-duotone",
+        tone: "scarlet",
+        visible: permitAreasVisible,
+      },
+      {
+        id: "parkingLocations",
+        group: "parking",
+        label: "具体停车地点",
+        detail: `${parkingLocationCount} 个地点 · 按类型筛选`,
+        icon: "solar:garage-bold-duotone",
+        tone: "blue",
+        visible: parkingLocationsVisible,
+      },
+      {
+        id: "transitVehicles",
+        group: "transit",
+        label: "实时车辆",
+        detail: `${mapProps.transitFeed?.vehicles.length ?? 0} 辆在线`,
+        icon: "solar:bus-bold-duotone",
+        tone: "orange",
+        visible: transitVehiclesVisible,
+      },
+      {
+        id: "transitRoutes",
+        group: "transit",
+        label: "完整线路",
+        detail: `${mapProps.activeRoutes?.length ?? 0} / ${mapProps.transitFeed?.routes.length ?? 0} 条已选`,
+        icon: "solar:route-bold-duotone",
+        tone: "navy",
+        visible: transitRoutesVisible,
+      },
+      {
+        id: "transitEndpoints",
+        group: "transit",
+        label: "线路起终点",
+        detail: mapProps.selectedTransitRoute
+          ? `${mapProps.selectedTransitRoute} · 极简标识`
+          : "选择一条线路后显示",
+        icon: "solar:flag-2-bold-duotone",
+        tone: "violet",
+        visible: transitEndpointsVisible,
+      },
+    ],
+    [
+      activeZones.length,
+      chargingStationsVisible,
+      mapProps.activeRoutes?.length,
+      mapProps.evStations?.length,
+      mapProps.selectedTransitRoute,
+      mapProps.transitFeed?.routes.length,
+      mapProps.transitFeed?.vehicles.length,
+      parkingLocationCount,
+      parkingLocationsVisible,
+      permitAreasVisible,
+      permitLayer.permitCode,
+      transitEndpointsVisible,
+      transitRoutesVisible,
+      transitVehiclesVisible,
+    ],
+  );
 
   const toggleZone = useCallback((zone: string) => {
     setExpansion((current) => {
@@ -224,44 +353,24 @@ export function CampusParkingMap({
         {...mapProps}
         variant={variant}
         permitAreas={permitLayer.areas}
-        showPermitAreas={permitLayer.visible}
+        showPermitAreas={permitAreasVisible}
+        showParkingLocations={parkingLocationsVisible}
+        showTransit={transitLayersVisible}
+        showTransitVehicles={transitVehiclesVisible}
+        showTransitRoutes={transitRoutesVisible}
+        showTransitEndpoints={transitEndpointsVisible}
+        showEv={chargingStationsVisible}
         expandedPermitZones={expandedZones}
         availablePermitZones={activeZones}
         expandedParkingGroup={expandedParkingGroup}
         className="h-full w-full"
       />
 
-      {variant === "default" &&
-        (parkingGroups.length > 0 || showPermitAccess) && (
-          <aside className="parking-layer-dock" aria-label="停车地图图层">
-            <button
-              type="button"
-              className="parking-layer-dock__toggle"
-              onClick={() => setParkingToolsOpen((current) => !current)}
-              aria-expanded={parkingToolsOpen}
-            >
-              <span>
-                <Icon icon="solar:layers-bold-duotone" />
-              </span>
-              <span>
-                <small>停车地图图层</small>
-                <strong>
-                  {parkingToolsOpen
-                    ? "分别查看地点与停车证范围"
-                    : `${parkingLocationCount} 个地点${showPermitAccess ? " · 含我的证区" : ""}`}
-                </strong>
-              </span>
-              <Icon
-                icon={
-                  parkingToolsOpen
-                    ? "solar:minimize-square-2-linear"
-                    : "solar:maximize-square-3-linear"
-                }
-              />
-            </button>
-
-            {parkingToolsOpen && (
-              <div className="parking-layer-dock__body">
+      {variant === "default" && (
+        <MapLayerSettingsDock
+          items={mapLayerItems}
+          onChange={setLayerVisible}
+        >
                 {parkingGroups.length > 0 && (
                   <section className="parking-layer-section">
                     <button
@@ -304,11 +413,16 @@ export function CampusParkingMap({
                                   "--parking-category-color": group.color,
                                 } as React.CSSProperties
                               }
-                              onClick={() =>
-                                setExpandedParkingGroup((current) =>
-                                  current === group.id ? undefined : group.id,
-                                )
-                              }
+                              onClick={() => {
+                                const opening =
+                                  expandedParkingGroup !== group.id;
+                                setExpandedParkingGroup(
+                                  opening ? group.id : undefined,
+                                );
+                                if (opening && !parkingLocationsVisible) {
+                                  setLayerVisible("parkingLocations", true);
+                                }
+                              }}
                               aria-pressed={expanded}
                             >
                               <span className="parking-category-ticket__code">
@@ -472,10 +586,8 @@ export function CampusParkingMap({
                     )}
                   </section>
                 )}
-              </div>
-            )}
-          </aside>
-        )}
+        </MapLayerSettingsDock>
+      )}
 
       {variant === "permit-preview" && permitLayer.visible && zones.length > 0 && (
         <aside className="permit-zone-dock" aria-label="停车证区域分类">

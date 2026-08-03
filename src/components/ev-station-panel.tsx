@@ -7,7 +7,6 @@ import styles from "@/components/ev-station-panel.module.css";
 import type {
   EvPricePeriod,
   EvStation,
-  EvTeslaPriceAudience,
   EvUpstreamStatus,
 } from "@/types/ev";
 
@@ -205,25 +204,32 @@ function minutes(value: string) {
   return hours * 60 + minute;
 }
 
-function periodDuration(period: EvPricePeriod) {
-  const difference =
-    (minutes(period.endTime) - minutes(period.startTime) + 1440) % 1440;
-  return difference || 1440;
+function formatRate(rate: number, currencyCode: string) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(rate);
+  } catch {
+    return `${Number.isFinite(rate) ? rate.toFixed(2) : "—"} ${/^[A-Z]{3}$/i.test(currencyCode) ? currencyCode.toUpperCase() : "USD"}`;
+  }
 }
 
-function formatRate(rate: number, currencyCode: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currencyCode,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(rate);
+function safeTimeZone(timeZone: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "America/New_York";
+  }
 }
 
 function currentSiteDay(timeZone: string) {
   const weekday = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
-    timeZone,
+    timeZone: safeTimeZone(timeZone),
   })
     .format(new Date())
     .toLowerCase();
@@ -232,165 +238,122 @@ function currentSiteDay(timeZone: string) {
     : "sunday";
 }
 
-function PriceChart({
-  group,
-  congestion,
-  currentHour,
-}: {
-  group: EvTeslaPriceAudience;
-  congestion: number[];
-  currentHour: number;
-}) {
-  const periods: EvPricePeriod[] = group.periods.length
-    ? group.periods
-    : group.baseRate !== undefined
-      ? [
-          {
-            startTime: "00:00",
-            endTime: "00:00",
-            days: [],
-            rate: group.baseRate,
-            currencyCode: "USD",
-            unit: "kWh",
-          },
-        ]
-      : [];
-
-  return (
-    <div className={styles.priceChart}>
-      {periods.length > 0 ? (
-        <div className={styles.priceSegments} aria-label="全天分时充电价格">
-          {periods.map((period, index) => (
-            <div
-              key={period.startTime + "-" + period.endTime + "-" + index}
-              style={{ flexGrow: periodDuration(period) }}
-            >
-              <strong>{formatRate(period.rate, period.currencyCode)}</strong>
-              <span>
-                {period.startTime}–
-                {period.endTime === "00:00" ? "24:00" : period.endTime}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className={styles.emptyPricing}>Tesla 当前未返回分时电价数组</p>
-      )}
-      {congestion.length === 24 && (
-        <div
-          className={styles.congestionChart}
-          aria-label="今日典型每小时拥挤度"
-        >
-          {congestion.map((value, hour) => (
-            <i
-              key={hour}
-              className={hour === currentHour ? styles.currentBar : undefined}
-              style={{ height: Math.max(8, value * 100) + "%" }}
-              title={
-                hour +
-                ":00 · 预计拥挤度 " +
-                Math.round(value * 100) +
-                "%"
-              }
-            />
-          ))}
-        </div>
-      )}
-      <div className={styles.chartAxis} aria-hidden="true">
-        <span>0时</span>
-        <span>6时</span>
-        <span>12时</span>
-        <span>18时</span>
-        <span>24时</span>
-      </div>
-      {group.congestionFee && (
-        <p className={styles.congestionFee}>
-          高占用时拥堵费最高{" "}
-          <strong>
-            {formatRate(
-              group.congestionFee.rate,
-              group.congestionFee.currencyCode,
-            )}
-            /分钟
-          </strong>
-        </p>
-      )}
-    </div>
+function escapeHtml(value: string) {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character] ?? character,
   );
 }
 
-function TeslaPricing({ station }: { station: EvStation }) {
+function currentSiteMinute(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+    timeZone: safeTimeZone(timeZone),
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  const minute = Number(
+    parts.find((part) => part.type === "minute")?.value ?? 0,
+  );
+  return hour * 60 + minute;
+}
+
+function periodIsCurrent(period: EvPricePeriod, minute: number) {
+  const start = minutes(period.startTime);
+  const end = minutes(period.endTime);
+  if (start === end) return true;
+  return start < end
+    ? minute >= start && minute < end
+    : minute >= start || minute < end;
+}
+
+function buildTeslaPriceDocument(station: EvStation) {
   const details = station.teslaDetails;
-  if (!details) return null;
+  if (!details) return undefined;
   const day = currentSiteDay(details.timeZone);
   const dayIndex = DAY_NAMES.indexOf(day);
-  const congestion = details.congestionByDay[day] ?? [];
-  const currentHour =
-    Number(
-      new Intl.DateTimeFormat("en-US", {
-        hour: "2-digit",
-        hour12: false,
-        timeZone: details.timeZone,
-      }).format(new Date()),
-    ) % 24;
+  const siteMinute = currentSiteMinute(details.timeZone);
+  const pricing = details.pricing
+    .map((group) => {
+      const periods: EvPricePeriod[] = group.periods.length
+        ? group.periods.filter(
+            (period) =>
+              period.days.length === 0 || period.days.includes(dayIndex),
+          )
+        : group.baseRate !== undefined
+          ? [
+              {
+                startTime: "00:00",
+                endTime: "00:00",
+                days: [],
+                rate: group.baseRate,
+                currencyCode: "USD",
+                unit: "kWh",
+              },
+            ]
+          : [];
+      const priceCells = periods
+        .map((period) => {
+          const current = periodIsCurrent(period, siteMinute);
+          const endTime =
+            period.endTime === "00:00" ? "24:00" : period.endTime;
+          return `<div class="rate${current ? " current" : ""}">
+            <span>${escapeHtml(period.startTime)}–${escapeHtml(endTime)}${
+              current ? '<i>当前</i>' : ""
+            }</span>
+            <strong>${escapeHtml(
+              formatRate(period.rate, period.currencyCode),
+            )}<small>/${period.unit === "minute" ? "分钟" : "kWh"}</small></strong>
+          </div>`;
+        })
+        .join("");
+      const title =
+        group.audience === "tesla-member"
+          ? "Tesla 车辆与会员"
+          : "非 Tesla 车辆";
+      const badge = group.audience === "tesla-member" ? "T" : "NACS";
+      const congestionFee = group.congestionFee
+        ? `<div class="congestion-fee"><span>官方拥堵费<small>触发条件以 Tesla App 为准</small></span><strong>${escapeHtml(
+            formatRate(
+              group.congestionFee.rate,
+              group.congestionFee.currencyCode,
+            ),
+          )}<small>/${group.congestionFee.unit === "minute" ? "分钟" : "kWh"}</small></strong></div>`
+        : "";
+      return `<article class="price-card ${group.audience}">
+        <header><b>${badge}</b><div><span>充电价格</span><h2>${title}</h2></div></header>
+        <div class="rates">${
+          priceCells || '<p class="empty">本次快照没有价格字段</p>'
+        }</div>
+        ${congestionFee}
+      </article>`;
+    })
+    .join("");
+  const dataLabel =
+    details.dataState === "live" ? "本次官方接口数据" : "每周手动快照 · 非实时";
+  const fetchedAt = formatTimestamp(details.fetchedAt) ?? details.fetchedAt;
 
-  return (
-    <section className={styles.teslaPricing}>
-      <header>
-        <div>
-          <strong>Tesla 官方价格</strong>
-          <span>
-            {details.dataState === "live"
-              ? "本次实时接口获取 · " + formatTimestamp(details.fetchedAt)
-              : "官方接口快照 · 非实时 · " +
-                formatTimestamp(details.fetchedAt)}
-          </span>
-        </div>
-        <i
-          className={
-            details.dataState === "live" ? styles.liveDot : styles.snapshotDot
-          }
-        />
-      </header>
-      {details.adapterNote && (
-        <div className={styles.adapterNote}>
-          <Icon icon="solar:adapter-bold-duotone" />
-          <span>{details.adapterNote}</span>
-        </div>
-      )}
-      {details.pricing.map((group, index) => (
-        <details key={group.audience} open={index === 0}>
-          <summary>
-            <span>
-              {group.audience === "tesla-member"
-                ? "Tesla 车辆与会员"
-                : "非 Tesla 车辆"}
-            </span>
-            <Icon icon="solar:alt-arrow-down-linear" />
-          </summary>
-          <PriceChart
-            group={{
-              ...group,
-              periods: group.periods.filter(
-                (period) =>
-                  period.days.length === 0 || period.days.includes(dayIndex),
-              ),
-            }}
-            congestion={congestion}
-            currentHour={currentHour}
-          />
-        </details>
-      ))}
-      <p className={styles.forecastNote}>
-        <Icon icon="solar:info-circle-linear" />
-        灰色柱为 Tesla 返回的典型时段拥挤度，并非当前空闲桩数量；最终价格以
-        Tesla App 开始充电前显示为准。
-      </p>
-    </section>
-  );
+  return `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}html,body{margin:0;background:#f7f7f8;color:#181b21;font-family:Inter,"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif}body{padding:12px}.shell{overflow:hidden;border:1px solid #e3e5e9;border-radius:18px;background:#fff;box-shadow:0 10px 28px rgba(16,24,40,.08)}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;border-bottom:1px solid #eceef1;background:linear-gradient(135deg,#fff,#f7f7f8)}.brand{display:flex;align-items:center;gap:9px}.mark{display:grid;width:31px;height:31px;place-items:center;border-radius:10px;background:#e82127;color:#fff;font-weight:900}.top strong{display:block;font-size:13px}.top span{display:block;margin-top:2px;color:#737983;font-size:10px}.status{flex:none;border-radius:999px;background:#fff3f2;color:#b42318;padding:5px 8px;font-size:9px;font-weight:800}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:11px}.price-card{overflow:hidden;border:1px solid #e5e7eb;border-radius:14px;background:#fbfbfc}.price-card>header{display:flex;align-items:center;gap:9px;padding:10px 11px}.price-card header b{display:grid;width:32px;height:32px;place-items:center;border-radius:10px;background:#e82127;color:#fff;font-size:13px}.price-card.non-tesla header b{background:#344054;font-size:8px}.price-card header span{color:#858b96;font-size:8px;font-weight:700;text-transform:uppercase}.price-card h2{margin:1px 0 0;font-size:12px}.rates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:0 9px 9px}.rate{min-width:0;border:1px solid #e5e7eb;border-radius:9px;background:#fff;padding:7px}.rate.current{border-color:#e82127;background:#fff5f4;box-shadow:inset 0 0 0 1px rgba(232,33,39,.08)}.rate span{display:flex;align-items:center;gap:4px;color:#7b818b;font-size:8px;white-space:nowrap}.rate i{border-radius:999px;background:#e82127;color:#fff;padding:1px 4px;font-size:7px;font-style:normal;font-weight:800}.rate strong{display:block;margin-top:3px;color:#20242b;font-size:12px}.rate small{color:#8a909a;font-size:8px;font-weight:600}.congestion-fee{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid #e5e7eb;background:#fff8eb;padding:8px 10px;color:#7a2e0e}.congestion-fee>span{font-size:9px;font-weight:800}.congestion-fee>span small{display:block;margin-top:2px;color:#9c5b32;font-size:7px;font-weight:600;text-transform:none}.congestion-fee>strong{white-space:nowrap;font-size:12px}.congestion-fee>strong small{font-size:8px}.note{margin:0;border-top:1px solid #eceef1;background:#fafafa;color:#737983;padding:8px 13px;font-size:8px;line-height:1.45}.empty{grid-column:1/-1;margin:0;color:#858b96;font-size:10px}@media(max-width:420px){body{padding:8px}.grid{grid-template-columns:1fr}.top{align-items:flex-start}.status{white-space:nowrap}.rates{grid-template-columns:repeat(3,minmax(0,1fr))}}
+</style></head><body><main class="shell"><header class="top"><div class="brand"><i class="mark">T</i><div><strong>Tesla 官方充电价格</strong><span>${escapeHtml(
+    fetchedAt,
+  )} · ${escapeHtml(dataLabel)}</span></div></div><em class="status">非空闲端口状态</em></header><section class="grid">${pricing}</section><p class="note">仅展示官方响应中的两类充电价格；最终计费以 Tesla App 开始充电前显示为准。</p></main></body></html>`;
 }
 
 function StationDetails({ station }: { station: EvStation }) {
+  const [showTeslaPrices, setShowTeslaPrices] = useState(false);
+  const teslaPriceFrameRef = useRef<HTMLDivElement>(null);
   const stationPage = safeHttpsUrl(station.website);
   const networkPage = station.sources.find((source) => {
     const url = safeHttpsUrl(source.url);
@@ -401,7 +364,33 @@ function StationDetails({ station }: { station: EvStation }) {
       !source.label.includes("接口")
     );
   });
-  const networkPageUrl = safeHttpsUrl(networkPage?.url);
+  const isTeslaSupercharger =
+    station.networkKind === "tesla-supercharger";
+  const networkPageUrl = safeHttpsUrl(
+    networkPage?.url ??
+      (isTeslaSupercharger
+        ? "https://www.tesla.com/supercharger"
+        : undefined),
+  );
+  const networkPageLabel =
+    networkPage?.label ?? (isTeslaSupercharger ? "Tesla 官网" : "运营商官网");
+  const teslaPriceDocument = buildTeslaPriceDocument(station);
+  const teslaPriceFrameId = `tesla-prices-${station.id.replace(
+    /[^a-zA-Z0-9_-]/g,
+    "-",
+  )}`;
+
+  useEffect(() => {
+    if (!showTeslaPrices) return;
+    const timer = window.setTimeout(() => {
+      teslaPriceFrameRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [showTeslaPrices]);
+
   return (
     <div className={styles.stationDetails}>
       <dl>
@@ -453,20 +442,19 @@ function StationDetails({ station }: { station: EvStation }) {
             NLR 公开资料，价格与拥挤度不会伪装为实时。
           </p>
         )}
-      <TeslaPricing station={station} />
       <footer>
         <span>
           {station.availabilityIsRealtime
             ? "实时端口状态"
             : "未公开实时空闲端口"}
         </span>
-        <div>
+        <div className={styles.stationActions}>
           {stationPage && (
             <a
-              className={styles.primaryLink}
+              className={`${styles.stationActionLink} ${styles.primaryLink}`}
               href={stationPage}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
             >
               {station.networkKind === "tesla-supercharger"
                 ? "打开 Tesla 站点详情"
@@ -476,12 +464,57 @@ function StationDetails({ station }: { station: EvStation }) {
             </a>
           )}
           {networkPageUrl && (
-            <a href={networkPageUrl} target="_blank" rel="noreferrer">
-              {networkPage?.label ?? "运营商官网"}
+            <a
+              className={`${styles.stationActionLink} ${styles.secondaryLink}`}
+              href={networkPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {networkPageLabel}
             </a>
+          )}
+          {teslaPriceDocument && (
+            <button
+              className={`${styles.stationActionLink} ${styles.priceLink}`}
+              type="button"
+              aria-controls={teslaPriceFrameId}
+              aria-expanded={showTeslaPrices}
+              onClick={() => setShowTeslaPrices((visible) => !visible)}
+            >
+              <Icon
+                icon={
+                  showTeslaPrices
+                    ? "solar:close-circle-linear"
+                    : "solar:wallet-money-linear"
+                }
+              />
+              {showTeslaPrices
+                ? "收起价格"
+                : station.teslaDetails?.dataState === "live"
+                  ? "查看本次价格"
+                  : "查看价格快照"}
+            </button>
           )}
         </div>
       </footer>
+      {showTeslaPrices && teslaPriceDocument && (
+        <div
+          className={styles.teslaPriceFrame}
+          id={teslaPriceFrameId}
+          ref={teslaPriceFrameRef}
+        >
+          <div>
+            <strong>隔离价格表</strong>
+            <span>仅渲染两组价格字段，不载入 Tesla 页面脚本</span>
+          </div>
+          <iframe
+            title={`${station.name} Tesla 价格表`}
+            sandbox=""
+            referrerPolicy="no-referrer"
+            srcDoc={teslaPriceDocument}
+          />
+        </div>
+      )}
     </div>
   );
 }

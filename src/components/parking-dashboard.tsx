@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { EvControl } from "@/components/ev-control";
 import { EvStationPanel } from "@/components/ev-station-panel";
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
+import type { MapLayerSettingKey } from "@/components/map/map-layer-settings";
 import { ParkingAccessGuide } from "@/components/parking-access-guide";
 import {
   ParkingCard,
@@ -92,7 +93,6 @@ export function ParkingDashboard() {
   const [selectedId, setSelectedId] = useState<number>();
   const [permitOpen, setPermitOpen] = useState(false);
   const [accessGuideOpen, setAccessGuideOpen] = useState(false);
-  const [permitAreaLayerEnabled, setPermitAreaLayerEnabled] = useState(true);
   const [mobileView, setMobileView] = useState<MobileView>("list");
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("parking");
   const [selectedTransitRoute, setSelectedTransitRoute] = useState<string>();
@@ -312,7 +312,9 @@ export function ParkingDashboard() {
     Boolean(permitSummary),
   );
   const showPermitAreas =
-    permitAreaLayerEnabled && Boolean(permitSummary) && !permitAreas.error;
+    preferences.mapPermitAreasVisible &&
+    Boolean(permitSummary) &&
+    !permitAreas.error;
 
   const selectedPermitMessage = useMemo(() => {
     if (!selectedLocation) return "";
@@ -370,10 +372,24 @@ export function ParkingDashboard() {
     setSelectedId(id);
   }, []);
 
+  const showMapView = useCallback(() => {
+    setMobileView("map");
+    if (window.innerWidth > 820) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById("campus-map-workspace")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, []);
+
   const handlePermitSave = useCallback(
     (code: string, identity: UserParkingIdentity) => {
-      update({ permitCode: code, parkingIdentity: identity });
-      setPermitAreaLayerEnabled(true);
+      update({
+        permitCode: code,
+        parkingIdentity: identity,
+        mapPermitAreasVisible: true,
+      });
       setPermitOpen(false);
     },
     [update],
@@ -391,6 +407,78 @@ export function ParkingDashboard() {
     setAccessGuideOpen(false);
     setPermitOpen(true);
   }, []);
+
+  const setAllTransitMapLayers = useCallback(
+    (visible: boolean) => {
+      update({
+        mapTransitVisible: visible,
+        mapTransitVehiclesVisible: visible,
+        mapTransitRoutesVisible: visible,
+        mapTransitEndpointsVisible: visible,
+      });
+    },
+    [update],
+  );
+  const permitAreasError = permitAreas.error;
+  const reloadPermitAreas = permitAreas.reload;
+
+  const handleMapLayerVisibilityChange = useCallback(
+    (layer: MapLayerSettingKey, visible: boolean) => {
+      if (layer === "chargingStations") {
+        update({ evMode: visible });
+        return;
+      }
+      if (layer === "permitAreas") {
+        if (visible && !permitSummary) {
+          setPermitOpen(true);
+        } else if (visible && permitAreasError) {
+          reloadPermitAreas();
+        } else {
+          update({ mapPermitAreasVisible: visible });
+        }
+        return;
+      }
+      if (layer === "parkingLocations") {
+        update({ mapParkingLocationsVisible: visible });
+        return;
+      }
+
+      const nextTransitLayers = {
+        vehicles:
+          layer === "transitVehicles"
+            ? visible
+            : preferences.mapTransitVehiclesVisible,
+        routes:
+          layer === "transitRoutes"
+            ? visible
+            : preferences.mapTransitRoutesVisible,
+        endpoints:
+          layer === "transitEndpoints"
+            ? visible
+            : preferences.mapTransitEndpointsVisible,
+      };
+      update({
+        mapTransitVisible:
+          nextTransitLayers.vehicles ||
+          nextTransitLayers.routes ||
+          nextTransitLayers.endpoints,
+        ...(layer === "transitVehicles"
+          ? { mapTransitVehiclesVisible: visible }
+          : layer === "transitRoutes"
+            ? { mapTransitRoutesVisible: visible }
+            : { mapTransitEndpointsVisible: visible }),
+      });
+    },
+    [
+      permitAreasError,
+      permitSummary,
+      preferences.mapTransitEndpointsVisible,
+      preferences.mapTransitRoutesVisible,
+      preferences.mapTransitVehiclesVisible,
+      reloadPermitAreas,
+      update,
+    ],
+  );
 
   return (
     <div className="app-frame">
@@ -425,7 +513,7 @@ export function ParkingDashboard() {
             <button
               type="button"
               className={mobileView === "map" ? "is-active" : ""}
-              onClick={() => setMobileView("map")}
+              onClick={showMapView}
             >
               实时地图
             </button>
@@ -861,8 +949,12 @@ export function ParkingDashboard() {
                   if (opening && !transit.activeRoutes.includes(code)) {
                     transit.toggleRoute(code);
                   }
-                  if (opening && !preferences.mapTransitVisible) {
-                    update({ mapTransitVisible: true });
+                  if (opening) {
+                    update({
+                      mapTransitVisible: true,
+                      mapTransitRoutesVisible: true,
+                      mapTransitEndpointsVisible: true,
+                    });
                   }
                 }}
                 onToggleRoute={(code) => {
@@ -870,10 +962,12 @@ export function ParkingDashboard() {
                   transit.toggleRoute(code);
                   if (showing) {
                     setSelectedTransitRoute(code);
-                    if (!preferences.mapTransitVisible) {
-                      update({ mapTransitVisible: true });
-                    }
-                    if (window.innerWidth <= 820) setMobileView("map");
+                    update({
+                      mapTransitVisible: true,
+                      mapTransitRoutesVisible: true,
+                      mapTransitEndpointsVisible: true,
+                    });
+                    if (window.innerWidth <= 820) showMapView();
                   } else if (selectedTransitRoute === code) {
                     setSelectedTransitRoute(undefined);
                   }
@@ -898,7 +992,7 @@ export function ParkingDashboard() {
                     const visible = !preferences.evMode;
                     update({ evMode: visible });
                     if (visible && window.innerWidth <= 820) {
-                      setMobileView("map");
+                      showMapView();
                     }
                   }}
                 />
@@ -912,6 +1006,7 @@ export function ParkingDashboard() {
               "map-workspace",
               mobileView === "list" && "mobile-hidden-map",
             )}
+            id="campus-map-workspace"
           >
             <div className="map-workspace__toolbar">
               <div className="map-title">
@@ -975,6 +1070,21 @@ export function ParkingDashboard() {
                   if (window.innerWidth <= 820) setMobileView("list");
                 }}
                 parkingAccessById={parkingAccessById}
+                mapLayerVisibility={{
+                  chargingStations: preferences.evMode,
+                  permitAreas: showPermitAreas,
+                  parkingLocations: preferences.mapParkingLocationsVisible,
+                  transitVehicles:
+                    preferences.mapTransitVisible &&
+                    preferences.mapTransitVehiclesVisible,
+                  transitRoutes:
+                    preferences.mapTransitVisible &&
+                    preferences.mapTransitRoutesVisible,
+                  transitEndpoints:
+                    preferences.mapTransitVisible &&
+                    preferences.mapTransitEndpointsVisible,
+                }}
+                onMapLayerVisibilityChange={handleMapLayerVisibilityChange}
                 permitLayer={{
                   areas: permitAreas.data,
                   visible: showPermitAreas,
@@ -1008,7 +1118,7 @@ export function ParkingDashboard() {
                     } else if (permitAreas.error) {
                       permitAreas.reload();
                     } else {
-                      setPermitAreaLayerEnabled((current) => !current);
+                      update({ mapPermitAreasVisible: !showPermitAreas });
                     }
                   }}
                   aria-pressed={showPermitAreas}
@@ -1056,15 +1166,19 @@ export function ParkingDashboard() {
                     setTransitPanelExpanded((current) => !current)
                   }
                   onToggleVisible={() =>
-                    update({
-                      mapTransitVisible: !preferences.mapTransitVisible,
-                    })
+                    setAllTransitMapLayers(!preferences.mapTransitVisible)
                   }
                   onToggleRoute={(code) => {
                     const showing = !transit.activeRoutes.includes(code);
                     transit.toggleRoute(code);
-                    if (showing) setSelectedTransitRoute(code);
-                    else if (selectedTransitRoute === code) {
+                    if (showing) {
+                      setSelectedTransitRoute(code);
+                      update({
+                        mapTransitVisible: true,
+                        mapTransitRoutesVisible: true,
+                        mapTransitEndpointsVisible: true,
+                      });
+                    } else if (selectedTransitRoute === code) {
                       setSelectedTransitRoute(undefined);
                     }
                   }}
@@ -1380,7 +1494,7 @@ export function ParkingDashboard() {
         <button
           type="button"
           className={mobileView === "map" ? "is-active" : ""}
-          onClick={() => setMobileView("map")}
+          onClick={showMapView}
         >
           <Icon
             icon={

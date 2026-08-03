@@ -509,7 +509,7 @@ function json(
     status,
     headers: {
       "Cache-Control":
-        status === 200
+        status === 200 && payload.requestOrigin !== "snapshot"
           ? source === "nlr"
             ? "public, s-maxage=21600, stale-while-revalidate=86400"
             : "public, s-maxage=900, stale-while-revalidate=3600"

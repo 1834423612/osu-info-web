@@ -601,24 +601,98 @@
   font-size: 9px;
 }
 
-.stationDetails > footer div {
+.stationActions {
   display: flex;
   flex-wrap: wrap;
+  align-items: stretch;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 6px;
 }
 
-.stationDetails > footer a {
-  color: #1570ef;
+.stationDetails > footer .stationActionLink {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  color: #344054;
+  padding: 5px 8px;
+  font: inherit;
   font-weight: 750;
+  line-height: 1.2;
+  text-align: center;
   text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stationActionLink svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .stationDetails > footer .primaryLink {
-  border-radius: 7px;
-  background: #eff8ff;
-  padding: 4px 7px;
-  color: #175cd3;
+  border-color: #fda29b;
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.stationDetails > footer .secondaryLink:hover {
+  border-color: #98a2b3;
+  background: #f9fafb;
+}
+
+.stationDetails > footer .priceLink {
+  border-color: #fda29b;
+  color: #b42318;
+}
+
+.stationDetails > footer .priceLink[aria-expanded="true"] {
+  border-color: #d92d20;
+  background: #d92d20;
+  color: #fff;
+}
+
+.teslaPriceFrame {
+  overflow: hidden;
+  margin-top: 9px;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  background: #f7f7f8;
+  box-shadow: 0 8px 24px rgb(16 24 40 / 8%);
+}
+
+.teslaPriceFrame > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #eaecf0;
+  background: #fff;
+  padding: 8px 11px;
+}
+
+.teslaPriceFrame strong {
+  color: #344054;
+  font-size: 10px;
+}
+
+.teslaPriceFrame span {
+  color: #98a2b3;
+  font-size: 8px;
+  text-align: right;
+}
+
+.teslaPriceFrame iframe {
+  display: block;
+  width: 100%;
+  height: 342px;
+  border: 0;
+  background: #f7f7f8;
 }
 
 .teslaPricing {
@@ -903,6 +977,21 @@
 
   .capacity {
     display: none;
+  }
+
+  .stationDetails > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stationActions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  }
+
+  .teslaPriceFrame iframe {
+    height: 430px;
   }
 
   .priceSegments span {
