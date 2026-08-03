@@ -27,6 +27,31 @@ export type EvChargingSpeed =
 
 export type EvTeslaDataState = "live" | "static-snapshot";
 
+export type EvUpstreamService =
+  | "nlr"
+  | "tesla-charger"
+  | "tesla-location";
+
+export type EvUpstreamTransport = "browser" | "server" | "snapshot";
+
+/**
+ * A sanitized status for one upstream request. This is intentionally safe to
+ * show in the UI and console: API keys and complete upstream response bodies
+ * are never included.
+ */
+export type EvUpstreamStatus = {
+  service: EvUpstreamService;
+  transport: EvUpstreamTransport;
+  ok: boolean;
+  attemptedAt: string;
+  status?: number;
+  stationId?: string;
+  durationMs?: number;
+  cache?: "miss" | "fresh" | "stale";
+  message?: string;
+  requestId?: string;
+};
+
 export type EvPricePeriod = {
   /** Local time at the charging site, in HH:mm format. */
   startTime: string;
@@ -48,7 +73,7 @@ export type EvTeslaPriceAudience = {
 
 export type EvTeslaDetails = {
   locationSlug: string;
-  /** `live` means fetched directly from Tesla by the current browser. */
+  /** `live` means the current request was parsed from Tesla, via browser or server. */
   dataState: EvTeslaDataState;
   fetchedAt: string;
   sourceUpdatedAt?: string;
@@ -131,6 +156,10 @@ export type EvStationsResponse = {
   sourceUpdatedAt?: string;
   isFallback: boolean;
   warning?: string;
-  /** Upstream services are intentionally requested by the browser, not Next.js. */
-  requestOrigin?: "browser";
+  /** Whether this result came from direct requests, the same-origin proxy, or both. */
+  requestOrigin?: "browser" | "server" | "mixed" | "snapshot";
+  /** Per-upstream diagnostics without secrets or raw provider response bodies. */
+  upstreams?: EvUpstreamStatus[];
+  /** Correlates a browser failure with the corresponding server log entry. */
+  requestId?: string;
 };

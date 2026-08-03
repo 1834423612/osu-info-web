@@ -8,6 +8,7 @@ import type {
   EvPricePeriod,
   EvStation,
   EvTeslaPriceAudience,
+  EvUpstreamStatus,
 } from "@/types/ev";
 
 type StationFilter =
@@ -25,6 +26,7 @@ export type EvStationPanelProps = {
   error?: string;
   warning?: string;
   updatedAt?: string;
+  upstreams?: EvUpstreamStatus[];
   selectedId?: string;
   onSelectStation?: (station: EvStation) => void;
   mapVisible?: boolean;
@@ -49,6 +51,87 @@ const DAY_NAMES = [
   "friday",
   "saturday",
 ] as const;
+
+const UPSTREAM_LABELS: Record<EvUpstreamStatus["service"], string> = {
+  nlr: "NLR 站点",
+  "tesla-charger": "Tesla 价格",
+  "tesla-location": "Tesla 位置",
+};
+
+function sourceHealth(
+  upstreams: EvUpstreamStatus[],
+  service: EvUpstreamStatus["service"],
+) {
+  const attempts = upstreams.filter((item) => item.service === service);
+  const stationGroups = new Map<string, EvUpstreamStatus[]>();
+  for (const attempt of attempts) {
+    const key = attempt.stationId ?? "all";
+    stationGroups.set(key, [...(stationGroups.get(key) ?? []), attempt]);
+  }
+  const hasUnrecoveredStation = [...stationGroups.values()].some(
+    (group) => !group.some((attempt) => attempt.ok),
+  );
+  const success =
+    attempts.find(
+      (item) => item.ok && item.transport === "browser" && item.cache !== "stale",
+    ) ??
+    attempts.find(
+      (item) => item.ok && item.transport === "server" && item.cache !== "stale",
+    ) ??
+    attempts.find((item) => item.ok);
+  if (success) {
+    return {
+      state: hasUnrecoveredStation ? ("partial" as const) : ("success" as const),
+      label:
+        hasUnrecoveredStation
+          ? "部分站点失败"
+          : success.transport === "browser"
+          ? "浏览器直连"
+          : success.cache === "fresh"
+            ? "服务器缓存"
+            : success.cache === "stale"
+              ? "过期缓存"
+              : "服务器代理",
+      detail: success.message,
+    };
+  }
+  const failure = attempts.at(-1);
+  if (failure) {
+    return {
+      state: "failure" as const,
+      label: failure.status ? `HTTP ${failure.status}` : "请求失败",
+      detail: failure.message,
+    };
+  }
+  return { state: "waiting" as const, label: "等待请求" };
+}
+
+function UpstreamHealth({
+  upstreams,
+}: {
+  upstreams: EvUpstreamStatus[];
+}) {
+  return (
+    <div className={styles.upstreamHealth} aria-label="充电数据源状态">
+      {(["nlr", "tesla-charger", "tesla-location"] as const).map(
+        (service) => {
+          const health = sourceHealth(upstreams, service);
+          return (
+            <span
+              key={service}
+              className={styles[`${health.state}Health`]}
+              title={health.detail}
+            >
+              <i />
+              <b>{UPSTREAM_LABELS[service]}</b>
+              <em>{health.label}</em>
+            </span>
+          );
+        },
+      )}
+    </div>
+  );
+}
 
 function distanceMiles(station: EvStation) {
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
@@ -404,6 +487,7 @@ export function EvStationPanel({
   error,
   warning,
   updatedAt,
+  upstreams = [],
   selectedId,
   onSelectStation,
   mapVisible,
@@ -515,7 +599,7 @@ export function EvStationPanel({
             <small>EV CHARGING</small>
             <h2>校园附近充电站</h2>
             <p>
-              浏览器直连 NLR 获取校园 5 英里内站点；Tesla 详情单独标注实时或快照。
+              浏览器优先直连官方 GET；失败时自动切换同源代理，并单独标注实时、缓存或快照。
             </p>
           </div>
           {onToggleMap && (
@@ -576,6 +660,8 @@ export function EvStationPanel({
           </label>
         </div>
 
+        <UpstreamHealth upstreams={upstreams} />
+
         {(warning || error) && (
           <details className={error ? styles.errorNotice : styles.warningNotice}>
             <summary>
@@ -590,6 +676,28 @@ export function EvStationPanel({
               <Icon icon="solar:alt-arrow-down-linear" />
             </summary>
             <p>{error ?? warning}</p>
+            {upstreams.length > 0 && (
+              <ul className={styles.diagnosticList}>
+                {upstreams.map((diagnostic, index) => (
+                  <li key={`${diagnostic.service}-${diagnostic.stationId ?? "all"}-${diagnostic.transport}-${index}`}>
+                    <strong>{UPSTREAM_LABELS[diagnostic.service]}</strong>
+                    <span>
+                      {diagnostic.transport === "browser"
+                        ? "浏览器"
+                        : diagnostic.transport === "server"
+                          ? "服务器"
+                          : "快照"}
+                      {diagnostic.stationId ? ` · ${diagnostic.stationId}` : ""}
+                      {diagnostic.status ? ` · HTTP ${diagnostic.status}` : ""}
+                      {diagnostic.requestId
+                        ? ` · ID ${diagnostic.requestId.slice(0, 8)}`
+                        : ""}
+                    </span>
+                    <em>{diagnostic.message ?? (diagnostic.ok ? "成功" : "失败")}</em>
+                  </li>
+                ))}
+              </ul>
+            )}
           </details>
         )}
 

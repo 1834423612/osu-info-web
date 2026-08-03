@@ -1,7 +1,14 @@
 import type {
   CurrentAccessSummary,
+  InstantInput,
+  PermitCode,
+  PermitDefinition,
   SurfaceScope,
   SurfaceZone,
+} from "@/data/permits";
+import {
+  getCurrentAccessSummary,
+  getPermitByCode,
 } from "@/data/permits";
 
 export type PermitZoneMeta = {
@@ -80,7 +87,7 @@ export const PERMIT_ZONE_META: Readonly<Record<SurfaceZone, PermitZoneMeta>> = {
   },
 };
 
-const ALL_UNRESTRICTED_ZONES: readonly SurfaceZone[] = [
+export const PERMIT_MAP_ALL_ZONES: readonly SurfaceZone[] = [
   "A",
   "B",
   "C",
@@ -90,6 +97,23 @@ const ALL_UNRESTRICTED_ZONES: readonly SurfaceZone[] = [
   "WC",
   "WCO",
 ];
+
+export type PermitMapPeriodId =
+  | "current"
+  | "weekday-peak"
+  | "weekday-evening"
+  | "weekend"
+  | "holiday"
+  | "overnight";
+
+export type PermitMapPeriod = {
+  readonly id: PermitMapPeriodId;
+  readonly labelZh: string;
+  readonly rangeZh: string;
+  readonly detailZh: string;
+  readonly zones: readonly SurfaceZone[];
+  readonly isCurrent?: boolean;
+};
 
 const HOLIDAY_REMOTE_PERMITS = new Set([
   "WA",
@@ -104,7 +128,7 @@ const HOLIDAY_REMOTE_PERMITS = new Set([
 
 export function resolveSurfaceScopeZones(scope: SurfaceScope): SurfaceZone[] {
   return scope === "all-unrestricted"
-    ? [...ALL_UNRESTRICTED_ZONES]
+    ? [...PERMIT_MAP_ALL_ZONES]
     : Array.from(new Set(scope));
 }
 
@@ -139,4 +163,82 @@ export function resolvePermitZones(
     : permit.access.peakSurface;
 
   return resolveSurfaceScopeZones(scope);
+}
+
+function resolveHolidayPreviewZones(permit: PermitDefinition): SurfaceZone[] {
+  return HOLIDAY_REMOTE_PERMITS.has(permit.code)
+    ? ["A", "B", "C", "CX"]
+    : resolveSurfaceScopeZones(permit.access.offPeakSurface);
+}
+
+function resolveOvernightPreviewZones(permit: PermitDefinition): SurfaceZone[] {
+  const surface = permit.access.overnight.surface;
+  return surface === "none" ? [] : resolveSurfaceScopeZones(surface);
+}
+
+/**
+ * Shared rule-preview model used by the dashboard and permit picker maps.
+ * These are policy windows, not a prediction that a future holiday/event day
+ * will be free of closures; the map UI keeps that distinction visible.
+ */
+export function getPermitMapPeriods(
+  permitCode: PermitCode,
+  at: InstantInput,
+): readonly PermitMapPeriod[] {
+  const permit = getPermitByCode(permitCode);
+  const current = getCurrentAccessSummary(permitCode, at);
+  const offPeakZones = resolveSurfaceScopeZones(permit.access.offPeakSurface);
+
+  return [
+    {
+      id: "current",
+      labelZh: "当前",
+      rangeZh: current.time.labelZh,
+      detailZh: `按当前 Columbus 美东时间判断：${current.surfaceZh}`,
+      zones: resolvePermitZones(current),
+      isCurrent: true,
+    },
+    {
+      id: "weekday-peak",
+      labelZh: "工作日白天",
+      rangeZh: "5 a.m.–4 p.m.",
+      detailZh:
+        "规则预览：工作日白天按停车证原始等级使用一般非保留地面位。",
+      zones: resolveSurfaceScopeZones(permit.access.peakSurface),
+    },
+    {
+      id: "weekday-evening",
+      labelZh: "工作日晚间",
+      rangeZh: "周一至周四 4 p.m.–次日 3 a.m.",
+      detailZh:
+        "规则预览：非高峰扩展只适用于一般非保留车位；现场标识和活动安排优先。",
+      zones: offPeakZones,
+    },
+    {
+      id: "weekend",
+      labelZh: "周末",
+      rangeZh: "周五 4 p.m.–周一 3 a.m.",
+      detailZh:
+        "规则预览：周末非高峰连续开放；赛事、封路和特殊活动可能临时覆盖。",
+      zones: offPeakZones,
+    },
+    {
+      id: "holiday",
+      labelZh: "校方假日",
+      rangeZh: "12:01 a.m.–次日 3 a.m.",
+      detailZh:
+        "规则预览：仅表示校方公布假日的一般规则，不预测某个未来日期或活动状态。",
+      zones: resolveHolidayPreviewZones(permit),
+    },
+    {
+      id: "overnight",
+      labelZh: "工作日夜间",
+      rangeZh: "3–5 a.m.",
+      detailZh:
+        permit.access.overnight.mode === "not-included"
+          ? "此停车证不含工作日 3–5 a.m. 通用地面存放权限；灰红区域表示不可据此停车。"
+          : permit.access.overnight.detailZh,
+      zones: resolveOvernightPreviewZones(permit),
+    },
+  ];
 }

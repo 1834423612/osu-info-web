@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { EvControl } from "@/components/ev-control";
 import { EvStationPanel } from "@/components/ev-station-panel";
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
+import { ParkingAccessGuide } from "@/components/parking-access-guide";
 import {
   ParkingCard,
   type ParkingAccessPresentation,
@@ -20,8 +21,10 @@ import { TimeDisplay } from "@/components/time-display";
 import { TransitControl } from "@/components/transit-control";
 import { TransitRoutePanel } from "@/components/transit-route-panel";
 import {
+  classifyCampusParkingTime,
   estimateVisitorParkingCost,
   getCurrentAccessSummary,
+  getParkingTimeRangeZh,
   getPermitPlanningNotice,
   isPermitCode,
   OFFICIAL_PARKING_URLS,
@@ -38,7 +41,11 @@ import { usePermitAreas } from "@/hooks/use-permit-areas";
 import { useTransit } from "@/hooks/use-transit";
 import { formatCampusModified } from "@/lib/parking-feed";
 import { resolveParkingLocationAccess } from "@/lib/parking-location-access";
-import { resolvePermitZones } from "@/lib/permit-map";
+import {
+  getPermitMapPeriods,
+  PERMIT_MAP_ALL_ZONES,
+  resolvePermitZones,
+} from "@/lib/permit-map";
 import {
   cn,
   formatNumber,
@@ -84,6 +91,7 @@ export function ParkingDashboard() {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number>();
   const [permitOpen, setPermitOpen] = useState(false);
+  const [accessGuideOpen, setAccessGuideOpen] = useState(false);
   const [permitAreaLayerEnabled, setPermitAreaLayerEnabled] = useState(true);
   const [mobileView, setMobileView] = useState<MobileView>("list");
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("parking");
@@ -269,6 +277,10 @@ export function ParkingDashboard() {
         : undefined,
     [now, preferences.permitCode],
   );
+  const parkingTime = useMemo(
+    () => classifyCampusParkingTime(now),
+    [now],
+  );
 
   const permitLabel = getSelectedPermitLabel(preferences.permitCode);
   const permitPlanningNotice = useMemo(
@@ -287,13 +299,20 @@ export function ParkingDashboard() {
     () => (permitSummary ? resolvePermitZones(permitSummary) : []),
     [permitSummary],
   );
+  const permitMapPeriods = useMemo(
+    () =>
+      isPermitCode(preferences.permitCode)
+        ? getPermitMapPeriods(preferences.permitCode, now)
+        : [],
+    [now, preferences.permitCode],
+  );
   const hasPermitZones = permitZones.length > 0;
   const permitAreas = usePermitAreas(
-    permitZones,
-    Boolean(permitSummary && hasPermitZones),
+    permitSummary ? PERMIT_MAP_ALL_ZONES : [],
+    Boolean(permitSummary),
   );
   const showPermitAreas =
-    permitAreaLayerEnabled && hasPermitZones && !permitAreas.error;
+    permitAreaLayerEnabled && Boolean(permitSummary) && !permitAreas.error;
 
   const selectedPermitMessage = useMemo(() => {
     if (!selectedLocation) return "";
@@ -362,6 +381,15 @@ export function ParkingDashboard() {
 
   const handlePermitClose = useCallback(() => {
     setPermitOpen(false);
+  }, []);
+
+  const handleAccessGuideClose = useCallback(() => {
+    setAccessGuideOpen(false);
+  }, []);
+
+  const handleEditPermitFromGuide = useCallback(() => {
+    setAccessGuideOpen(false);
+    setPermitOpen(true);
   }, []);
 
   return (
@@ -519,7 +547,7 @@ export function ParkingDashboard() {
           <button
             type="button"
             className="metric-card metric-card--permit"
-            onClick={() => setPermitOpen(true)}
+            onClick={() => setAccessGuideOpen(true)}
           >
             <span className="metric-card__icon metric-card__icon--blue">
               <Icon icon="solar:key-square-2-bold-duotone" />
@@ -532,11 +560,16 @@ export function ParkingDashboard() {
                 <span className="metric-label metric-label--mobile">权限</span>
               </small>
               <strong>
-                {permitSummary?.time.labelZh ??
-                  (preferences.permitCode === "visitor"
-                    ? "访客停车"
-                    : "待设置")}
+                <span className="metric-period--desktop">
+                  {getParkingTimeRangeZh(parkingTime)}
+                </span>
+                <span className="metric-period--mobile">
+                  {getParkingTimeRangeZh(parkingTime, true)}
+                </span>
               </strong>
+              <em className="metric-card__period-label">
+                {parkingTime.labelZh}
+              </em>
             </span>
             <Icon icon="solar:alt-arrow-right-linear" />
           </button>
@@ -550,7 +583,7 @@ export function ParkingDashboard() {
               permitName={permitLabel}
               permitMessage={selectedPermitMessage}
               nearestFastCharger={nearestFastCharger}
-              escapeEnabled={!permitOpen}
+              escapeEnabled={!permitOpen && !accessGuideOpen}
               onClose={() => setSelectedId(undefined)}
               onToggleFavorite={() =>
                 toggleFavorite(selectedLocation.GarageId)
@@ -842,6 +875,7 @@ export function ParkingDashboard() {
                   error={ev.error}
                   warning={ev.warning}
                   updatedAt={ev.updatedAt}
+                  upstreams={ev.upstreams}
                   selectedId={selectedEvStationId}
                   onSelectStation={(station) => {
                     setSelectedEvStationId(station.id);
@@ -933,7 +967,9 @@ export function ParkingDashboard() {
                   areas: permitAreas.data,
                   visible: showPermitAreas,
                   permitCode: permitSummary?.permit.officialCode,
-                  zones: permitZones,
+                  zones: PERMIT_MAP_ALL_ZONES,
+                  availableZones: permitZones,
+                  periods: permitMapPeriods,
                   loading: permitAreas.loading,
                   error: permitAreas.error,
                 }}
@@ -955,7 +991,7 @@ export function ParkingDashboard() {
                     permitSummary && !hasPermitZones && "is-unavailable",
                   )}
                   onClick={() => {
-                    if (!permitSummary || !hasPermitZones) {
+                    if (!permitSummary) {
                       setPermitOpen(true);
                     } else if (permitAreas.error) {
                       permitAreas.reload();
@@ -979,7 +1015,9 @@ export function ParkingDashboard() {
                       {!permitSummary
                         ? "先设置停车证"
                         : !hasPermitZones
-                          ? "当前时段无地面准停证区"
+                          ? showPermitAreas
+                            ? "当前无地面区 · 可在地图切换时段"
+                            : "当前无地面区 · 点击规划其他时段"
                         : permitAreas.loading
                           ? "读取官方 GIS"
                           : permitAreas.error
@@ -1047,7 +1085,7 @@ export function ParkingDashboard() {
                       "insight-planning-notice",
                       `is-${permitPlanningNotice.tone}`,
                     )}
-                    onClick={() => setPermitOpen(true)}
+                    onClick={() => setAccessGuideOpen(true)}
                   >
                     <Icon
                       icon={
@@ -1366,6 +1404,14 @@ export function ParkingDashboard() {
         now={now}
         onSave={handlePermitSave}
         onClose={handlePermitClose}
+      />
+      <ParkingAccessGuide
+        open={accessGuideOpen}
+        now={now}
+        permitCode={preferences.permitCode}
+        permitLabel={permitLabel}
+        onClose={handleAccessGuideClose}
+        onEditPermit={handleEditPermitFromGuide}
       />
     </div>
   );

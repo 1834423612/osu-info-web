@@ -5,7 +5,11 @@ import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import type { FeatureCollection } from "geojson";
 
-import { getPermitZoneMeta } from "@/lib/permit-map";
+import {
+  getPermitZoneMeta,
+  type PermitMapPeriod,
+  type PermitMapPeriodId,
+} from "@/lib/permit-map";
 import {
   getParkingMapGroups,
   type ParkingMapGroupId,
@@ -34,7 +38,13 @@ export type PermitMapLayer = {
   areas: FeatureCollection;
   visible: boolean;
   permitCode?: string;
+  /** Every GIS zone kept on the map, including zones unavailable in a period. */
   zones?: readonly string[];
+  /** Used when no period model is provided. */
+  availableZones?: readonly string[];
+  periods?: readonly PermitMapPeriod[];
+  selectedPeriod?: PermitMapPeriodId;
+  onSelectedPeriodChange?: (period: PermitMapPeriodId) => void;
   loading?: boolean;
   error?: string;
 };
@@ -56,6 +66,62 @@ export type CampusParkingMapProps = {
   permitLayer: PermitMapLayer;
   className?: string;
 };
+
+function PermitPeriodSwitcher({
+  periods,
+  selected,
+  onSelect,
+  compact = false,
+}: {
+  periods: readonly PermitMapPeriod[];
+  selected: PermitMapPeriodId;
+  onSelect: (period: PermitMapPeriodId) => void;
+  compact?: boolean;
+}) {
+  const active = periods.find((period) => period.id === selected) ?? periods[0];
+  if (!active || periods.length < 2) return null;
+
+  return (
+    <div
+      className={cn(
+        "permit-period-switcher",
+        compact && "permit-period-switcher--compact",
+      )}
+    >
+      <div className="permit-period-switcher__heading">
+        <span>
+          <Icon icon="solar:calendar-date-bold-duotone" />
+        </span>
+        <span>
+          <small>{active.labelZh}</small>
+          <strong>{active.rangeZh}</strong>
+        </span>
+        <b>{active.zones.length} 个可用证区</b>
+      </div>
+      <div className="permit-period-switcher__options" role="group" aria-label="停车证规则时段">
+        {periods.map((period) => (
+          <button
+            type="button"
+            key={period.id}
+            className={period.id === active.id ? "is-active" : undefined}
+            onClick={() => onSelect(period.id)}
+            aria-pressed={period.id === active.id}
+            title={`${period.rangeZh}：${period.detailZh}`}
+          >
+            {period.isCurrent && <i aria-hidden="true" />}
+            <span>{period.labelZh}</span>
+            <small>{period.rangeZh}</small>
+          </button>
+        ))}
+      </div>
+      <p>{active.detailZh}</p>
+      <div className="permit-period-switcher__legend" aria-label="证区颜色说明">
+        <span className="is-available"><i />彩色：该时段可用</span>
+        <span className="is-unavailable"><i />灰红：该时段不可用</span>
+      </div>
+    </div>
+  );
+}
 
 /**
  * The single public campus-map component used by both the dashboard and the
@@ -83,12 +149,44 @@ export function CampusParkingMap({
   const [parkingToolsOpen, setParkingToolsOpen] = useState(false);
   const [parkingLocationsOpen, setParkingLocationsOpen] = useState(false);
   const [permitAccessOpen, setPermitAccessOpen] = useState(false);
+  const permitPeriodKey = permitLayer.permitCode ?? "none";
+  const [localPeriodState, setLocalPeriodState] = useState<{
+    permitKey: string;
+    period: PermitMapPeriodId;
+  }>({ permitKey: permitPeriodKey, period: "current" });
+  const localPeriod =
+    localPeriodState.permitKey === permitPeriodKey
+      ? localPeriodState.period
+      : "current";
+  const selectedPeriod = permitLayer.selectedPeriod ?? localPeriod;
+  const activePeriod =
+    permitLayer.periods?.find((period) => period.id === selectedPeriod) ??
+    permitLayer.periods?.[0];
+  const activeZones = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activePeriod?.zones ?? permitLayer.availableZones ?? zones,
+        ),
+      ),
+    [activePeriod?.zones, permitLayer.availableZones, zones],
+  );
+  const activeZoneSet = useMemo(() => new Set(activeZones), [activeZones]);
+  const selectPeriod = useCallback(
+    (period: PermitMapPeriodId) => {
+      if (permitLayer.selectedPeriod === undefined) {
+        setLocalPeriodState({ permitKey: permitPeriodKey, period });
+      }
+      permitLayer.onSelectedPeriodChange?.(period);
+    },
+    [permitLayer, permitPeriodKey],
+  );
   const expandedZones = expansion.layerKey === layerKey ? expansion.zones : [];
 
   const expandedSet = new Set(expandedZones);
   const allExpanded =
     zones.length > 0 && zones.every((zone) => expandedSet.has(zone));
-  const primaryMeta = getPermitZoneMeta(zones[0]);
+  const primaryMeta = getPermitZoneMeta(activeZones[0] ?? zones[0]);
   const parkingGroups = useMemo(
     () => getParkingMapGroups(mapProps.locations ?? []),
     [mapProps.locations],
@@ -128,6 +226,7 @@ export function CampusParkingMap({
         permitAreas={permitLayer.areas}
         showPermitAreas={permitLayer.visible}
         expandedPermitZones={expandedZones}
+        availablePermitZones={activeZones}
         expandedParkingGroup={expandedParkingGroup}
         className="h-full w-full"
       />
@@ -262,7 +361,7 @@ export function CampusParkingMap({
                       <span>
                         <small>我的停车证准停范围</small>
                         <strong>
-                          {permitLayer.permitCode} · {zones.join(" / ")} 证区
+                          {permitLayer.permitCode} · {activeZones.length} / {zones.length} 个可用证区
                         </strong>
                       </span>
                       <Icon
@@ -280,18 +379,27 @@ export function CampusParkingMap({
                             ? "正在读取官方 GIS 地块…"
                             : permitLayer.error
                               ? "证区边界加载失败；可通过左上角停车证图层按钮重试。"
-                              : "彩色边界表示当前时段的准停证区；下方可继续显示官方 GIS 的具体停车地块。"}
+                              : "切换规则时段进行规划；彩色为可用证区，灰红为该时段不可用。现场标牌与活动安排始终优先。"}
                         </p>
+                        {!!permitLayer.periods?.length && (
+                          <PermitPeriodSwitcher
+                            periods={permitLayer.periods}
+                            selected={activePeriod?.id ?? "current"}
+                            onSelect={selectPeriod}
+                            compact
+                          />
+                        )}
                         <div className="parking-permit-layer-detail__zones">
                           {zones.map((zone) => {
                             const meta = getPermitZoneMeta(zone);
                             if (!meta) return null;
                             const expanded = expandedSet.has(zone);
-                            const unavailable = Boolean(
+                            const dataUnavailable = Boolean(
                               permitLayer.loading ||
                                 permitLayer.error ||
                                 permitAreaCount === 0,
                             );
+                            const periodUnavailable = !activeZoneSet.has(zone);
                             return (
                               <button
                                 type="button"
@@ -301,16 +409,25 @@ export function CampusParkingMap({
                                     "--permit-zone-color": meta.color,
                                   } as React.CSSProperties
                                 }
-                                className={expanded ? "is-active" : undefined}
+                                className={cn(
+                                  expanded && "is-active",
+                                  periodUnavailable && "is-unavailable",
+                                )}
                                 onClick={() => toggleZone(zone)}
                                 aria-pressed={expanded}
-                                title={meta.descriptionZh}
-                                disabled={unavailable}
+                                title={
+                                  periodUnavailable
+                                    ? `${meta.descriptionZh} 当前预览时段不可用。`
+                                    : meta.descriptionZh
+                                }
+                                disabled={dataUnavailable}
                               >
                                 <b>{zone}</b>
                                 <span>
-                                  {unavailable
-                                    ? "地块不可用"
+                                  {dataUnavailable
+                                    ? "地块未加载"
+                                    : periodUnavailable
+                                      ? "此时段不可用"
                                     : expanded
                                       ? "已显示地块"
                                       : "显示地块"}
@@ -366,11 +483,16 @@ export function CampusParkingMap({
             const meta = getPermitZoneMeta(zone);
             if (!meta) return null;
             const expanded = expandedSet.has(zone);
+            const periodUnavailable = !activeZoneSet.has(zone);
             return (
               <button
                 type="button"
                 key={zone}
-                className={cn("permit-zone-dock__ticket", expanded && "is-active")}
+                className={cn(
+                  "permit-zone-dock__ticket",
+                  expanded && "is-active",
+                  periodUnavailable && "is-unavailable",
+                )}
                 style={
                   { "--permit-zone-color": meta.color } as React.CSSProperties
                 }
@@ -381,7 +503,9 @@ export function CampusParkingMap({
                 <span>
                   <strong>{meta.shortNameZh}</strong>
                   <small>
-                    {meta.audienceZh} · {expanded ? "已显示地块" : "显示具体地块"}
+                    {periodUnavailable
+                      ? "当前预览时段不可用"
+                      : `${meta.audienceZh} · ${expanded ? "已显示地块" : "显示具体地块"}`}
                   </small>
                 </span>
                 <Icon icon="solar:alt-arrow-right-linear" />
@@ -390,6 +514,19 @@ export function CampusParkingMap({
           })}
         </aside>
       )}
+
+      {variant === "permit-preview" &&
+        permitLayer.visible &&
+        !!permitLayer.periods?.length && (
+          <div className="permit-period-switcher-wrap">
+            <PermitPeriodSwitcher
+              periods={permitLayer.periods}
+              selected={activePeriod?.id ?? "current"}
+              onSelect={selectPeriod}
+              compact
+            />
+          </div>
+        )}
 
       {variant === "permit-preview" &&
         permitLayer.visible &&
@@ -417,10 +554,14 @@ export function CampusParkingMap({
               <b>{permitLayer.permitCode}</b>
             </span>
             <span className="permit-map-summary__copy">
-              <small>当前时段准停证区</small>
-              <strong>{zones.join(" / ")} · 点击查看地块</strong>
+              <small>{activePeriod?.labelZh ?? "当前时段"}准停证区</small>
+              <strong>
+                {activeZones.length > 0
+                  ? `${activeZones.join(" / ")} · 点击查看地块`
+                  : "无通用地面准停区"}
+              </strong>
               <span className="permit-map-summary__colors" aria-hidden="true">
-                {zones.map((zone) => (
+                {activeZones.map((zone) => (
                   <i
                     key={zone}
                     style={{ background: getPermitZoneMeta(zone)?.color }}

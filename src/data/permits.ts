@@ -26,7 +26,13 @@ export const OFFICIAL_PARKING_URLS = {
     "https://osu.campusparc.com/media/ytziyyvm/surfacelotaccesstablepy26250520.pdf",
   garageAccess:
     "https://osu.campusparc.com/media/wnhdw3z5/garageaccesstablepy261027.pdf",
-  offPeakRules: "https://osu.campusparc.com/off-peak-parking/",
+  offPeakRules:
+    "https://osu.campusparc.com/find-parking/off-peak-permit-parking/",
+  parkingDefinitions: "https://osu.campusparc.com/parking-definitions/",
+  eventParking:
+    "https://osu.campusparc.com/find-parking/ohio-state-event-parking/",
+  longTermLateNight:
+    "https://osu.campusparc.com/find-parking/long-term-and-late-night-parking/",
   visitorRates:
     "https://osu.campusparc.com/find-parking/academic-visitor-parking/",
   parkingPolicies:
@@ -955,6 +961,139 @@ export interface ParkingTimeClassification {
   readonly holidayCalendarCovered: boolean;
 }
 
+/**
+ * Official general-access windows used by the dashboard guide.
+ *
+ * Sources checked 2026-08-03:
+ * - CampusParc Off-Peak Permit Parking
+ * - CampusParc Parking Definitions
+ * - CampusParc Ohio State Event Parking
+ *
+ * A posted sign, event map, closure or permit-specific access table can always
+ * narrow these general windows.
+ */
+export const CAMPUS_PARKING_ACCESS_WINDOWS = [
+  {
+    id: "weekday-peak",
+    titleZh: "常规工作日",
+    timeZh: "周一至周五 05:00–16:00",
+    tone: "peak",
+    summaryZh:
+      "按停车证等级使用相应非保留区域；西校区停车证高峰期通常须留在 SR-315 西侧，Blankenship Lot 除外。",
+    restrictionsZh:
+      "不能因持有较低等级或西校区停车证而停入更高等级的中校区字母位。",
+  },
+  {
+    id: "weekday-off-peak",
+    titleZh: "工作日晚间",
+    timeZh: "周一至周四 16:00–次日 03:00",
+    tone: "off-peak",
+    summaryZh:
+      "WA / WAE / WB / WC / WCO / CX 可使用中校区 A、B、C 一般非保留地面位；部分车库按证件详情开放。",
+    restrictionsZh:
+      "预留、ADA、按小时、州公务车与装卸位不会因非高峰时段自动开放。",
+  },
+  {
+    id: "weekend",
+    titleZh: "周末连续窗口",
+    timeZh: "周五 16:00–周一 03:00",
+    tone: "weekend",
+    summaryZh:
+      "一般非高峰扩展连续生效；部分车库可由访客或有效 keycard 使用，仍需核对证件页面和入口提示。",
+    restrictionsZh:
+      "周一 03:00 后周末窗口结束；工作日 03:00–05:00 的夜间存放规则另行适用。",
+  },
+  {
+    id: "holiday",
+    titleZh: "大学认可假日",
+    timeZh: "假日 00:01–次日 03:00",
+    tone: "holiday",
+    summaryZh:
+      "按官方假日非高峰规则扩大一般非保留地面位权限；部分证件另有 9th Avenue 车库窗口。",
+    restrictionsZh:
+      "仅适用于大学正式认可的假日，不等同于所有校历停课日或 academic break。",
+  },
+  {
+    id: "overnight",
+    titleZh: "工作日夜间存放",
+    timeZh: "周一至周五 03:00–05:00",
+    tone: "overnight",
+    summaryZh:
+      "这是独立的 overnight 权限窗口；只可使用证件明确允许的地面范围、指定车库楼层或 late-night 临停区。",
+    restrictionsZh:
+      "普通 commuter 证件通常不含车辆存放；非高峰权限不能自动延伸到这个窗口。",
+  },
+  {
+    id: "event",
+    titleZh: "活动日 / Global Event",
+    timeZh: "没有统一时段 · 以当次活动地图为准",
+    tone: "event",
+    summaryZh:
+      "活动可能改入口、费率、可用停车场和出场方式；global event 的 keycard 权限也与普通活动不同。",
+    restrictionsZh:
+      "日、数日和月度访客证不适用于活动停车；活动专用区域必须持对应活动证。",
+  },
+] as const;
+
+export const CAMPUS_PARKING_ZONE_GUIDE = [
+  {
+    code: "A",
+    titleZh: "Faculty / A&P",
+    locationZh: "中校区",
+    requirementZh: "高峰期需 A 等级权限；A 通常也可用较低等级非保留位。",
+    tone: "a",
+  },
+  {
+    code: "B",
+    titleZh: "Staff / CCS",
+    locationZh: "中校区",
+    requirementZh: "高峰期需 B 或更高等级；C / CX 证不能停。",
+    tone: "b",
+  },
+  {
+    code: "C",
+    titleZh: "学生",
+    locationZh: "中校区",
+    requirementZh: "高峰期需包含 C 的证件；西校证高峰期通常不能停。",
+    tone: "c",
+  },
+  {
+    code: "CX",
+    titleZh: "Buckeye Lot",
+    locationZh: "远端学生区",
+    requirementZh: "高峰期按 CX/所选证件层级使用；可搭乘 CABS 接驳。",
+    tone: "cx",
+  },
+  {
+    code: "WA",
+    titleZh: "Faculty / A&P",
+    locationZh: "西校区",
+    requirementZh: "高峰期使用 SR-315 西侧相应非保留区域。",
+    tone: "wa",
+  },
+  {
+    code: "WB",
+    titleZh: "Staff / CCS",
+    locationZh: "西校区",
+    requirementZh: "高峰期使用西校区 WB 及证件所含较低等级区域。",
+    tone: "wb",
+  },
+  {
+    code: "WC",
+    titleZh: "学生",
+    locationZh: "西校区",
+    requirementZh: "高峰期使用西校区 WC / WCO 一般非保留位。",
+    tone: "wc",
+  },
+  {
+    code: "WCO",
+    titleZh: "Overnight",
+    locationZh: "西校区指定区",
+    requirementZh: "仅供明确含 overnight 权限的证件；日间权限不等于可过夜。",
+    tone: "wco",
+  },
+] as const;
+
 const campusPartsFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: CAMPUS_TIME_ZONE,
   year: "numeric",
@@ -1092,6 +1231,10 @@ export function classifyCampusParkingTime(
 ): ParkingTimeClassification {
   const campus = getCampusDateTimeParts(at);
   const isWeekend = campus.weekday === 0 || campus.weekday === 6;
+  const isWeekendOffPeakWindow =
+    (campus.weekday === 5 && campus.minuteOfDay >= 16 * 60) ||
+    isWeekend ||
+    (campus.weekday === 1 && campus.minuteOfDay < 3 * 60);
   const isOvernight =
     !isWeekend &&
     campus.minuteOfDay >= 3 * 60 &&
@@ -1119,7 +1262,9 @@ export function classifyCampusParkingTime(
 
   const labels: Readonly<Record<ParkingPeriod, string>> = {
     peak: "工作日高峰时段",
-    "off-peak": isWeekend ? "周末非高峰时段" : "工作日非高峰时段",
+    "off-peak": isWeekendOffPeakWindow
+      ? "周末非高峰时段"
+      : "工作日非高峰时段",
     overnight: "夜间停车时段（3–5 a.m.）",
     holiday: holidayWindow
       ? `${holidayWindow.holiday.nameZh}假日规则`
@@ -1138,6 +1283,30 @@ export function classifyCampusParkingTime(
     holiday: holidayWindow?.holiday ?? null,
     holidayCalendarCovered: campus.year === 2026 || campus.year === 2027,
   };
+}
+
+/** Visible official/general window for the current Columbus-time class. */
+export function getParkingTimeRangeZh(
+  time: ParkingTimeClassification,
+  compact = false,
+): string {
+  if (time.primary === "peak") return compact ? "05–16" : "05:00–16:00";
+  if (time.primary === "overnight") {
+    return compact ? "03–05" : "03:00–05:00";
+  }
+  if (time.primary === "holiday") {
+    return compact ? "假日–03" : "00:01–次日 03:00";
+  }
+
+  const isWeekendWindow =
+    (time.campus.weekday === 5 && time.campus.minuteOfDay >= 16 * 60) ||
+    time.campus.weekday === 0 ||
+    time.campus.weekday === 6 ||
+    (time.campus.weekday === 1 && time.campus.minuteOfDay < 3 * 60);
+  if (isWeekendWindow) {
+    return compact ? "五16–一03" : "周五 16:00–周一 03:00";
+  }
+  return compact ? "16–03" : "16:00–次日 03:00";
 }
 
 /** Short alias for UI code. */

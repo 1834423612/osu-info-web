@@ -1,7 +1,6 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import type { FeatureCollection, Geometry } from "geojson";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
@@ -26,13 +25,10 @@ import {
 } from "@/data/permits";
 import { usePermitAreas } from "@/hooks/use-permit-areas";
 import {
-  resolvePermitZones,
-  resolveSurfaceScopeZones,
+  getPermitMapPeriods,
+  PERMIT_MAP_ALL_ZONES,
+  type PermitMapPeriodId,
 } from "@/lib/permit-map";
-import {
-  filterPermitPreviewFeatures,
-  type PermitAreaProperties,
-} from "@/lib/permit-access";
 import { cn, formatNumber } from "@/lib/utils";
 
 const audienceIcon: Record<PermitAudience, string> = {
@@ -136,10 +132,8 @@ export function PermitSettings({
   const [draftIdentity, setDraftIdentity] = useState<UserParkingIdentity>(
     selectedIdentity ?? inferIdentityForPermitSelection(selectedCode),
   );
-  const [previewMapEnabled, setPreviewMapEnabled] = useState(false);
-  const [previewPeriod, setPreviewPeriod] = useState<"current" | "off-peak">(
-    "current",
-  );
+  const [previewPeriod, setPreviewPeriod] =
+    useState<PermitMapPeriodId>("current");
   const modalRef = useRef<HTMLElement>(null);
   const selectDraft = (code: string) => {
     setDraft(code);
@@ -164,17 +158,6 @@ export function PermitSettings({
       setDraft("none");
     }
   };
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 821px)");
-    const syncPreviewMode = () => setPreviewMapEnabled(media.matches);
-    const frame = window.requestAnimationFrame(syncPreviewMode);
-    media.addEventListener("change", syncPreviewMode);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      media.removeEventListener("change", syncPreviewMode);
-    };
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -259,43 +242,19 @@ export function PermitSettings({
       isPermitCode(draft) ? getPermitPlanningNotice(draft, now) : undefined,
     [draft, now],
   );
-  const currentPreviewZones = useMemo(
-    () => (summary ? resolvePermitZones(summary) : []),
-    [summary],
+  const previewPeriods = useMemo(
+    () => (isPermitCode(draft) ? getPermitMapPeriods(draft, now) : []),
+    [draft, now],
   );
-  const offPeakPreviewZones = useMemo(
-    () =>
-      permit ? resolveSurfaceScopeZones(permit.access.offPeakSurface) : [],
-    [permit],
-  );
-  const previewZones =
-    previewPeriod === "off-peak"
-      ? offPeakPreviewZones
-      : currentPreviewZones;
-  const canCompareOffPeak =
-    currentPreviewZones.join(",") !== offPeakPreviewZones.join(",");
+  const activePreviewPeriod =
+    previewPeriods.find((period) => period.id === previewPeriod) ??
+    previewPeriods[0];
+  const previewZones = activePreviewPeriod?.zones ?? [];
   const previewAreas = usePermitAreas(
-    previewZones,
-    open && previewMapEnabled && previewZones.length > 0,
+    summary ? PERMIT_MAP_ALL_ZONES : [],
+    open && Boolean(summary),
   );
-  const identityFilteredPreviewAreas = useMemo(
-    () =>
-      summary
-        ? filterPermitPreviewFeatures(
-            previewAreas.data as FeatureCollection<
-              Geometry,
-              PermitAreaProperties
-            >,
-            {
-              permitCode: summary.permit.code,
-              identity: draftIdentity,
-              at: now,
-            },
-          )
-        : previewAreas.data,
-    [draftIdentity, now, previewAreas.data, summary],
-  );
-  const previewHasFeatures = identityFilteredPreviewAreas.features.length > 0;
+  const previewHasFeatures = previewAreas.data.features.length > 0;
 
   if (!open) return null;
 
@@ -445,43 +404,25 @@ export function PermitSettings({
           <div className="permit-detail-workspace">
             <aside
               className="permit-preview"
-              aria-label="当前停车证可用区域地图预览"
+              aria-label="停车证证区与规则时段地图预览"
             >
-              {summary && previewZones.length > 0 ? (
+              {summary ? (
                 <>
-                  {canCompareOffPeak && (
-                    <div className="permit-preview__period" role="group" aria-label="地图权限时段">
-                      <button
-                        type="button"
-                        className={previewPeriod === "current" ? "is-active" : undefined}
-                        onClick={() => setPreviewPeriod("current")}
-                        aria-pressed={previewPeriod === "current"}
-                      >
-                        当前
-                      </button>
-                      <button
-                        type="button"
-                        className={previewPeriod === "off-peak" ? "is-active" : undefined}
-                        onClick={() => setPreviewPeriod("off-peak")}
-                        aria-pressed={previewPeriod === "off-peak"}
-                      >
-                        4 p.m. 后
-                      </button>
-                    </div>
-                  )}
-                  {previewMapEnabled && (
-                    <CampusParkingMap
-                      variant="permit-preview"
-                      permitLayer={{
-                        areas: identityFilteredPreviewAreas,
-                        visible: !previewAreas.error,
-                        permitCode: summary.permit.officialCode,
-                        zones: previewZones,
-                        loading: previewAreas.loading,
-                        error: previewAreas.error,
-                      }}
-                    />
-                  )}
+                  <CampusParkingMap
+                    variant="permit-preview"
+                    permitLayer={{
+                      areas: previewAreas.data,
+                      visible: !previewAreas.error,
+                      permitCode: summary.permit.officialCode,
+                      zones: PERMIT_MAP_ALL_ZONES,
+                      availableZones: previewZones,
+                      periods: previewPeriods,
+                      selectedPeriod: activePreviewPeriod?.id ?? "current",
+                      onSelectedPeriodChange: setPreviewPeriod,
+                      loading: previewAreas.loading,
+                      error: previewAreas.error,
+                    }}
+                  />
                   <div
                     className={cn(
                       "permit-preview__status",
@@ -500,12 +441,17 @@ export function PermitSettings({
                         <Icon icon="solar:danger-triangle-bold-duotone" />
                         {previewAreas.error}
                       </>
+                    ) : previewZones.length === 0 ? (
+                      <>
+                        <Icon icon="solar:danger-triangle-bold-duotone" />
+                        该时段不含通用地面准停区；灰红区域仅供位置对比
+                      </>
                     ) : previewHasFeatures ? (
                       <>
                         <Icon icon="solar:map-point-bold-duotone" />
-                        {previewPeriod === "off-peak"
-                          ? "正在预览 4 p.m. 后的扩展区域"
-                          : "地图按当前美东时段即时更新"}
+                        {activePreviewPeriod?.isCurrent
+                          ? "地图按当前美东时段即时更新"
+                          : `正在预览规则时段：${activePreviewPeriod?.labelZh ?? "所选时段"}`}
                       </>
                     ) : (
                       <>

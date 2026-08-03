@@ -132,6 +132,81 @@
   color: #be123c;
 }
 
+.upstreamHealth {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+
+.upstreamHealth::-webkit-scrollbar {
+  display: none;
+}
+
+.upstreamHealth > span {
+  display: inline-flex;
+  min-height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  background: #f9fafb;
+  padding: 3px 8px;
+  color: #667085;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.upstreamHealth i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: #98a2b3;
+}
+
+.upstreamHealth b {
+  color: #344054;
+  font-weight: 800;
+}
+
+.upstreamHealth em {
+  font-style: normal;
+}
+
+.upstreamHealth .successHealth {
+  border-color: #abefc6;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.upstreamHealth .successHealth i {
+  background: #12b76a;
+}
+
+.upstreamHealth .failureHealth {
+  border-color: #fecdca;
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.upstreamHealth .failureHealth i {
+  background: #d92d20;
+}
+
+.upstreamHealth .partialHealth {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.upstreamHealth .partialHealth i {
+  background: #f79009;
+}
+
 .warningNotice,
 .errorNotice {
   border: 1px solid #fedf89;
@@ -192,6 +267,49 @@
   border-top: 1px solid rgb(247 144 9 / 20%);
   padding: 8px 10px;
   font-size: 9px;
+}
+
+.diagnosticList {
+  display: grid;
+  max-height: 120px;
+  gap: 0;
+  overflow-y: auto;
+  margin: 0;
+  border-top: 1px solid rgb(247 144 9 / 20%);
+  padding: 0 10px 7px;
+  list-style: none;
+}
+
+.diagnosticList li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 7px;
+  border-bottom: 1px dashed rgb(152 162 179 / 25%);
+  padding: 6px 0;
+  font-size: 8px;
+}
+
+.diagnosticList li:last-child {
+  border-bottom: 0;
+}
+
+.diagnosticList strong {
+  color: inherit;
+}
+
+.diagnosticList span {
+  overflow: hidden;
+  color: #667085;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnosticList em {
+  grid-column: 1 / -1;
+  color: #667085;
+  font-style: normal;
+  line-height: 1.4;
 }
 
 .listTools {
@@ -282,13 +400,17 @@
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 11px 18px 20px;
   scroll-padding-top: 10px;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
 }
 
 .stationCard {
   min-width: 0;
+  flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid #e4e7ec;
   border-radius: 14px;

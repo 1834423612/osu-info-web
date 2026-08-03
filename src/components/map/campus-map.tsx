@@ -68,8 +68,8 @@ const PERMIT_AREA_FILL_PAINT: FillLayerSpecification["paint"] = {
 };
 const PERMIT_AREA_LINE_PAINT: LineLayerSpecification["paint"] = {
   "line-color": ["get", "zoneOutline"],
-  "line-opacity": 0.86,
-  "line-width": 1.4,
+  "line-opacity": ["get", "lineOpacity"],
+  "line-width": ["get", "lineWidth"],
 };
 const PERMIT_AREA_PREVIEW_LINE_PAINT: LineLayerSpecification["paint"] = {
   ...PERMIT_AREA_LINE_PAINT,
@@ -102,6 +102,8 @@ export type CampusMapProps = {
   permitAreas: FeatureCollection;
   showPermitAreas?: boolean;
   expandedPermitZones?: string[];
+  /** Empty means every permit area is unavailable in the selected rule window. */
+  availablePermitZones?: readonly string[];
   expandedParkingGroup?: ParkingMapGroupId;
   className?: string;
 };
@@ -227,7 +229,13 @@ function getPermitLotRepresentatives(
   });
 }
 
-function PermitLotPopup({ lot }: { lot: PermitLotRepresentative }) {
+function PermitLotPopup({
+  lot,
+  available,
+}: {
+  lot: PermitLotRepresentative;
+  available: boolean;
+}) {
   const sourceUrl = safeHttpsUrl(lot.link, "https://osu.campusparc.com");
   const meta = getPermitZoneMeta(lot.code);
 
@@ -235,6 +243,11 @@ function PermitLotPopup({ lot }: { lot: PermitLotRepresentative }) {
     <div className="map-info-popup map-info-popup--permit">
       <small>{meta?.shortNameZh ?? lot.code} · {lot.code}</small>
       <strong>{lot.name}</strong>
+      {!available && (
+        <span className="is-warning">
+          当前所选规则时段不可用；仅供对比位置，不代表可以停车。
+        </span>
+      )}
       {meta && <p>{meta.descriptionZh}</p>}
       {(lot.usage || lot.visitorParking) && (
         <div>
@@ -707,6 +720,7 @@ function CampusMapRuntime({
   permitAreas,
   showPermitAreas = true,
   expandedPermitZones = [],
+  availablePermitZones,
   expandedParkingGroup,
 }: CampusMapProps) {
   const { map } = useMap();
@@ -726,6 +740,18 @@ function CampusMapRuntime({
         expandedPermitZoneKey ? expandedPermitZoneKey.split(",") : [],
       ),
     [expandedPermitZoneKey],
+  );
+  const availablePermitZoneKey = availablePermitZones
+    ? [...availablePermitZones].sort().join(",")
+    : undefined;
+  const availablePermitZoneSet = useMemo(
+    () =>
+      availablePermitZoneKey === undefined
+        ? undefined
+        : new Set(
+            availablePermitZoneKey ? availablePermitZoneKey.split(",") : [],
+          ),
+    [availablePermitZoneKey],
   );
 
   const routeColors = useMemo(
@@ -778,22 +804,33 @@ function CampusMapRuntime({
                 : "";
             const meta = getPermitZoneMeta(code);
             if (!meta) return [];
+            const available =
+              availablePermitZoneSet === undefined ||
+              availablePermitZoneSet.has(meta.code);
             return [
               {
                 ...feature,
                 properties: {
                   ...feature.properties,
                   zoneCode: meta.code,
-                  zoneColor: meta.color,
-                  zoneOutline: meta.outlineColor,
-                  fillOpacity:
-                    expandedPermitZoneSet.size === 0
+                  zoneAvailable: available,
+                  zoneColor: available ? meta.color : "#9a4b5c",
+                  zoneOutline: available ? meta.outlineColor : "#6f2e3c",
+                  fillOpacity: available
+                    ? expandedPermitZoneSet.size === 0
                       ? isPermitPreview
                         ? 0.3
                         : 0.21
                       : expandedPermitZoneSet.has(meta.code)
                         ? 0.34
-                        : 0.1,
+                        : 0.1
+                    : expandedPermitZoneSet.has(meta.code)
+                      ? 0.18
+                      : isPermitPreview
+                        ? 0.105
+                        : 0.075,
+                  lineOpacity: available ? 0.86 : 0.72,
+                  lineWidth: available ? 1.4 : 1.8,
                 },
               },
             ];
@@ -802,6 +839,7 @@ function CampusMapRuntime({
     }),
     [
       expandedPermitZoneSet,
+      availablePermitZoneSet,
       isPermitPreview,
       permitAreas.features,
       showPermitAreas,
@@ -1070,10 +1108,26 @@ function CampusMapRuntime({
             .filter((lot) => expandedPermitZoneSet.has(lot.code))
             .flatMap((lot) => {
               const meta = getPermitZoneMeta(lot.code);
-              return meta ? [{ lot, color: meta.color }] : [];
+              const available =
+                availablePermitZoneSet === undefined ||
+                availablePermitZoneSet.has(lot.code);
+              return meta
+                ? [
+                    {
+                      lot,
+                      available,
+                      color: available ? meta.color : "#9a4b5c",
+                    },
+                  ]
+                : [];
             })
         : [],
-    [expandedPermitZoneSet, permitAreas, showPermitAreas],
+    [
+      availablePermitZoneSet,
+      expandedPermitZoneSet,
+      permitAreas,
+      showPermitAreas,
+    ],
   );
 
   return (
@@ -1115,7 +1169,7 @@ function CampusMapRuntime({
           </MarkerContent>
         </MapMarker>
       ))}
-      {expandedPermitLots.map(({ lot, color }) => (
+      {expandedPermitLots.map(({ lot, color, available }) => (
         <MapMarker
           key={lot.id}
           longitude={lot.coordinates[0]}
@@ -1125,9 +1179,9 @@ function CampusMapRuntime({
           <MarkerContent>
             <button
               type="button"
-              className="permit-lot-map-marker"
+              className={`permit-lot-map-marker${available ? "" : " is-unavailable"}`}
               style={{ "--permit-zone-color": color } as React.CSSProperties}
-              aria-label={`${lot.name}，${lot.code} 停车证区域`}
+              aria-label={`${lot.name}，${lot.code} 停车证区域，${available ? "所选时段可用" : "所选时段不可用"}`}
               aria-haspopup="dialog"
             >
               <b>{lot.code}</b>
@@ -1135,7 +1189,7 @@ function CampusMapRuntime({
             </button>
           </MarkerContent>
           <MarkerPopup offset={16} maxWidth="270px">
-            <PermitLotPopup lot={lot} />
+            <PermitLotPopup lot={lot} available={available} />
           </MarkerPopup>
         </MapMarker>
       ))}

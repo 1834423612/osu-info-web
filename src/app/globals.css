@@ -3081,6 +3081,26 @@ button.metric-card:hover {
   opacity: 0.52;
 }
 
+.parking-permit-layer-detail__zones button.is-unavailable {
+  border-color: rgb(126 48 65 / 34%);
+  color: #75404b;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(139 64 79 / 4%) 0 5px,
+      rgb(139 64 79 / 11%) 5px 7px
+    ),
+    #fffafb;
+}
+
+.parking-permit-layer-detail__zones button.is-unavailable b {
+  background: #914457;
+}
+
+.parking-permit-layer-detail__zones button.is-unavailable span {
+  color: #8a4252;
+}
+
 .parking-permit-layer-detail__zones b {
   display: grid;
   width: 23px;
@@ -3360,6 +3380,22 @@ button.metric-card:hover {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--permit-zone-color) 15%, transparent);
 }
 
+.permit-zone-dock__ticket.is-unavailable {
+  --permit-zone-color: #914457 !important;
+  border-color: rgb(126 48 65 / 36%);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(139 64 79 / 3%) 0 6px,
+      rgb(139 64 79 / 10%) 6px 8px
+    ),
+    rgb(255 250 251 / 95%);
+}
+
+.permit-zone-dock__ticket.is-unavailable small {
+  color: #8a4252;
+}
+
 .permit-map-summary {
   position: absolute;
   z-index: 8;
@@ -3490,6 +3526,194 @@ button.metric-card:hover {
   background: color-mix(in srgb, var(--permit-zone-color) 7%, transparent);
 }
 
+.permit-period-switcher {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(18 20 22 / 10%);
+  border-radius: 11px;
+  background: rgb(255 255 255 / 96%);
+}
+
+.permit-period-switcher__heading {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid rgb(18 20 22 / 7%);
+  padding: 5px 7px;
+}
+
+.permit-period-switcher__heading > span:first-child {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  place-items: center;
+  border-radius: 7px;
+  color: #6b46b8;
+  background: #f0ebff;
+}
+
+.permit-period-switcher__heading svg {
+  width: 14px;
+  height: 14px;
+}
+
+.permit-period-switcher__heading > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+
+.permit-period-switcher__heading small,
+.permit-period-switcher__heading strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permit-period-switcher__heading small {
+  color: #6745a9;
+  font-size: 6px;
+  font-weight: 820;
+}
+
+.permit-period-switcher__heading strong {
+  margin-top: 1px;
+  color: var(--ink-soft);
+  font-size: 6.6px;
+}
+
+.permit-period-switcher__heading > b {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 5px;
+  color: #16734b;
+  background: #eaf8f1;
+  font-size: 5.6px;
+  white-space: nowrap;
+}
+
+.permit-period-switcher__options {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 5px 6px;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: #c7cdd2 transparent;
+  scrollbar-width: thin;
+}
+
+.permit-period-switcher__options button {
+  position: relative;
+  display: grid;
+  min-width: 83px;
+  min-height: 35px;
+  flex: 0 0 auto;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+  color: var(--muted);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.permit-period-switcher__options button > i {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+}
+
+.permit-period-switcher__options button span,
+.permit-period-switcher__options button small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permit-period-switcher__options button span {
+  color: inherit;
+  font-size: 6.4px;
+  font-weight: 800;
+}
+
+.permit-period-switcher__options button small {
+  margin-top: 2px;
+  font-size: 5.4px;
+}
+
+.permit-period-switcher__options button.is-active {
+  border-color: #6f4abc;
+  color: #fff;
+  background: #6f4abc;
+  box-shadow: 0 7px 14px -10px #553394;
+}
+
+.permit-period-switcher__options button.is-active small {
+  color: rgb(255 255 255 / 78%);
+}
+
+.permit-period-switcher > p {
+  margin: 0;
+  border-top: 1px solid rgb(18 20 22 / 7%);
+  padding: 5px 7px;
+  color: var(--muted);
+  font-size: 5.8px;
+  line-height: 1.45;
+}
+
+.permit-period-switcher__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  padding: 0 7px 6px;
+  color: var(--muted);
+  font-size: 5.7px;
+  font-weight: 700;
+}
+
+.permit-period-switcher__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.permit-period-switcher__legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: #31a46c;
+}
+
+.permit-period-switcher__legend .is-unavailable i {
+  border: 1px solid #7c3343;
+  background: repeating-linear-gradient(
+    -45deg,
+    #f8e8eb 0 2px,
+    #914457 2px 3px
+  );
+}
+
+.permit-period-switcher-wrap {
+  position: absolute;
+  z-index: 10;
+  top: 78px;
+  left: 14px;
+  width: min(215px, calc(100% - 232px));
+  min-width: 150px;
+  box-shadow: 0 10px 24px -17px rgb(10 15 20 / 50%);
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -3538,6 +3762,7 @@ button.metric-card:hover {
 .map-layer-button > svg {
   width: 24px;
   height: 24px;
+  flex: 0 0 24px;
   color: var(--green);
 }
 
@@ -3578,6 +3803,7 @@ button.metric-card:hover {
 
 .map-layer-button > span {
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .map-layer-button small {
@@ -3598,6 +3824,7 @@ button.metric-card:hover {
   position: relative;
   width: 26px;
   height: 16px;
+  flex: 0 0 26px;
   margin-left: auto;
   border-radius: 999px;
   background: #cdd1d6;
@@ -3997,6 +4224,17 @@ button.metric-card:hover {
   z-index: 10;
   scale: 1.04;
   translate: 0 -2px;
+}
+
+.permit-lot-map-marker.is-unavailable {
+  color: #7b3545;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(139 64 79 / 4%) 0 5px,
+      rgb(139 64 79 / 12%) 5px 7px
+    ),
+    rgb(255 250 251 / 96%);
 }
 
 .permit-lot-map-marker b {
@@ -7770,6 +8008,999 @@ button.metric-card:hover {
 
   .detail-sheet__footer {
     grid-template-columns: 1fr 0.75fr;
+  }
+}
+
+.metric-period--mobile {
+  display: none;
+}
+
+.metric-card--permit strong {
+  font-size: clamp(15px, 1.35vw, 20px);
+  letter-spacing: -0.025em;
+}
+
+.metric-card__period-label {
+  display: block;
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--blue);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-guide-layer {
+  padding: 24px;
+}
+
+.access-guide {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(1040px, 100%);
+  max-height: min(900px, calc(100dvh - 48px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 25px;
+  background: var(--surface);
+  box-shadow: 0 36px 100px -28px rgb(5 8 12 / 66%);
+  animation: modal-in 240ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+
+.access-guide__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  padding: 20px 22px 17px;
+}
+
+.access-guide__header h2 {
+  margin: 5px 0 4px;
+  font-size: 24px;
+  font-weight: 790;
+  letter-spacing: -0.04em;
+}
+
+.access-guide__header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.access-guide__body {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 22px 22px;
+  scrollbar-gutter: stable;
+}
+
+.access-guide-current {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  overflow: hidden;
+  border: 1px solid #c9ddee;
+  border-radius: 17px;
+  padding: 13px 14px;
+  background:
+    radial-gradient(circle at 88% 20%, rgb(39 124 197 / 10%), transparent 34%),
+    linear-gradient(135deg, #f5faff, #eef7ff);
+}
+
+.access-guide-current__icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 13px;
+  color: var(--blue);
+  background: #fff;
+  box-shadow: 0 8px 22px -14px rgb(26 100 166 / 55%);
+}
+
+.access-guide-current__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.access-guide-current small,
+.access-guide-current strong {
+  display: block;
+}
+
+.access-guide-current small {
+  color: #52728d;
+  font-size: 7.5px;
+  font-weight: 760;
+  letter-spacing: 0.03em;
+}
+
+.access-guide-current strong {
+  margin-top: 2px;
+  font-size: 16px;
+  letter-spacing: -0.025em;
+}
+
+.access-guide-current p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 6px 0 0;
+}
+
+.access-guide-current p b,
+.access-guide-current p span {
+  border-radius: 999px;
+  padding: 4px 7px;
+  font-size: 7px;
+}
+
+.access-guide-current p b {
+  color: #0e5d98;
+  background: rgb(255 255 255 / 80%);
+}
+
+.access-guide-current p span {
+  color: #4a6479;
+  background: rgb(39 124 197 / 9%);
+}
+
+.access-guide-current > button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #bfd5e7;
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: #175f96;
+  background: #fff;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.access-guide-current > button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.access-guide-section {
+  margin-top: 22px;
+}
+
+.access-guide-section__title {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.access-guide-section__title small {
+  color: var(--scarlet);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.access-guide-section__title h3 {
+  margin: 3px 0 0;
+  font-size: 16px;
+  letter-spacing: -0.025em;
+}
+
+.access-guide-section__title a,
+.event-parking-alert > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--blue);
+  font-size: 7.5px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.access-guide-section__title a svg,
+.event-parking-alert > a svg {
+  width: 13px;
+  height: 13px;
+}
+
+.access-window-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.access-window-card {
+  --window-color: #596675;
+  --window-bg: #f4f6f8;
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--window-color) 22%, var(--line));
+  border-radius: 14px;
+  padding: 11px;
+  background: color-mix(in srgb, var(--window-bg) 72%, #fff);
+}
+
+.access-window-card.is-peak {
+  --window-color: #bb3a14;
+  --window-bg: #fff1e8;
+}
+
+.access-window-card.is-off-peak {
+  --window-color: #2473b3;
+  --window-bg: #eaf5ff;
+}
+
+.access-window-card.is-weekend {
+  --window-color: #16815b;
+  --window-bg: #eaf9f2;
+}
+
+.access-window-card.is-holiday {
+  --window-color: #a76a04;
+  --window-bg: #fff7df;
+}
+
+.access-window-card.is-overnight {
+  --window-color: #6447b4;
+  --window-bg: #f1edff;
+}
+
+.access-window-card.is-event {
+  --window-color: #bc1237;
+  --window-bg: #fff0f3;
+}
+
+.access-window-card.is-current {
+  border-color: var(--window-color);
+  box-shadow: 0 10px 24px -19px var(--window-color);
+}
+
+.access-window-card.is-current::after {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  border-radius: 999px;
+  padding: 3px 5px;
+  color: #fff;
+  background: var(--window-color);
+  content: "当前";
+  font-size: 6px;
+  font-weight: 800;
+}
+
+.access-window-card > span {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--window-color);
+  background: #fff;
+}
+
+.access-window-card > span svg {
+  width: 18px;
+  height: 18px;
+}
+
+.access-window-card small {
+  display: block;
+  padding-right: 27px;
+  color: var(--window-color);
+  font-size: 6.5px;
+  font-weight: 780;
+}
+
+.access-window-card h4 {
+  margin: 3px 0 5px;
+  font-size: 10px;
+}
+
+.access-window-card p,
+.access-window-card em {
+  display: block;
+  margin: 0;
+  font-size: 7.2px;
+  line-height: 1.48;
+}
+
+.access-window-card p {
+  color: var(--ink-soft);
+}
+
+.access-window-card em {
+  margin-top: 5px;
+  color: color-mix(in srgb, var(--window-color) 72%, #303943);
+  font-style: normal;
+}
+
+.access-zone-intro {
+  margin: -2px 0 10px;
+  color: var(--muted);
+  font-size: 7.5px;
+  line-height: 1.5;
+}
+
+.access-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.access-zone-card {
+  --zone-color: #596675;
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 128px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--zone-color) 25%, var(--line));
+  border-radius: 13px;
+  padding: 10px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--zone-color) 7%, #fff), #fff 62%);
+}
+
+.access-zone-card.is-a { --zone-color: #bb1236; }
+.access-zone-card.is-b { --zone-color: #d45b15; }
+.access-zone-card.is-c { --zone-color: #8e5c09; }
+.access-zone-card.is-cx { --zone-color: #713be0; }
+.access-zone-card.is-wa { --zone-color: #1477b8; }
+.access-zone-card.is-wb { --zone-color: #16899a; }
+.access-zone-card.is-wc { --zone-color: #126a6e; }
+.access-zone-card.is-wco { --zone-color: #414d62; }
+
+.access-zone-card > b {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--zone-color);
+  font-size: 9px;
+  box-shadow: 0 8px 18px -13px var(--zone-color);
+}
+
+.access-zone-card small {
+  color: var(--zone-color);
+  font-size: 6.5px;
+  font-weight: 760;
+}
+
+.access-zone-card h4 {
+  margin: 2px 0 5px;
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-zone-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.42;
+}
+
+.access-zone-card > span {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 4px;
+  align-self: end;
+  margin-top: 3px;
+  border-radius: 7px;
+  padding: 5px 7px;
+  color: #146c46;
+  background: #eaf8f1;
+  font-size: 6.5px;
+  font-weight: 760;
+}
+
+.access-zone-card > span svg {
+  width: 12px;
+  height: 12px;
+}
+
+.access-zone-card.state-unavailable {
+  border-color: #d5d9df;
+  background: #f5f6f7;
+}
+
+.access-zone-card.state-unavailable > b {
+  filter: grayscale(0.55);
+  opacity: 0.66;
+}
+
+.access-zone-card.state-unavailable > span {
+  color: #9f2536;
+  background: #fff0f2;
+}
+
+.access-zone-card.state-visitor > span {
+  color: #a25b00;
+  background: #fff5df;
+}
+
+.access-zone-card.state-unset > span {
+  color: #596675;
+  background: #edf0f3;
+}
+
+.event-parking-alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  margin-top: 22px;
+  overflow: hidden;
+  border: 1px solid #efbdc8;
+  border-radius: 16px;
+  padding: 13px;
+  background:
+    radial-gradient(circle at 94% 15%, rgb(186 12 47 / 10%), transparent 32%),
+    #fff5f7;
+}
+
+.event-parking-alert > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--scarlet);
+  background: #fff;
+}
+
+.event-parking-alert > span svg {
+  width: 21px;
+  height: 21px;
+}
+
+.event-parking-alert small {
+  color: var(--scarlet);
+  font-size: 7px;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+}
+
+.event-parking-alert h3 {
+  margin: 3px 0 7px;
+  font-size: 11px;
+}
+
+.event-parking-alert ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 15px;
+  color: #684d54;
+  font-size: 7.2px;
+  line-height: 1.42;
+}
+
+.event-parking-alert > a {
+  align-self: center;
+  border: 1px solid #e6aebb;
+  border-radius: 9px;
+  padding: 8px 9px;
+  color: var(--scarlet);
+  background: #fff;
+}
+
+.access-guide-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.access-guide-sources span,
+.access-guide-sources a {
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 6.8px;
+  font-weight: 720;
+}
+
+.access-guide-sources span {
+  color: var(--muted);
+  background: var(--surface-muted);
+}
+
+.access-guide-sources a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  background: #fff;
+}
+
+.access-guide-sources a:hover {
+  border-color: #b9c2cc;
+  color: var(--blue);
+}
+
+.access-guide-sources svg {
+  width: 11px;
+  height: 11px;
+}
+
+.access-guide__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding: 12px 22px;
+  background: rgb(255 255 255 / 96%);
+}
+
+.access-guide__footer p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.4;
+}
+
+.access-guide__footer p svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--amber);
+}
+
+.access-guide__footer .button {
+  min-height: 36px;
+  padding: 8px 14px;
+}
+
+@media (max-width: 820px) {
+  .metric-period--desktop {
+    display: none;
+  }
+
+  .metric-period--mobile {
+    display: inline;
+  }
+
+  .metric-card--permit strong {
+    width: 100%;
+    font-size: 15px;
+    letter-spacing: -0.035em;
+    text-align: center;
+  }
+
+  .metric-card__period-label {
+    max-width: 72px;
+    margin: 1px auto 0;
+    font-size: 6px;
+  }
+
+  .access-guide-layer {
+    padding: 0;
+  }
+
+  .access-guide {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .access-guide__header {
+    gap: 10px;
+    padding: max(14px, env(safe-area-inset-top)) 15px 13px;
+  }
+
+  .access-guide__header h2 {
+    font-size: 20px;
+  }
+
+  .access-guide__header p {
+    max-width: 290px;
+    font-size: 8px;
+  }
+
+  .access-guide__body {
+    padding: 13px 14px 18px;
+    scrollbar-gutter: auto;
+  }
+
+  .access-guide-current {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px;
+  }
+
+  .access-guide-current__icon {
+    width: 39px;
+    height: 39px;
+  }
+
+  .access-guide-current strong {
+    font-size: 14px;
+  }
+
+  .access-guide-current > button {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .access-guide-section {
+    margin-top: 18px;
+  }
+
+  .access-guide-section__title {
+    align-items: flex-start;
+  }
+
+  .access-guide-section__title h3 {
+    font-size: 14px;
+  }
+
+  .access-window-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .access-window-card {
+    min-height: auto;
+  }
+
+  .access-zone-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .event-parking-alert {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .event-parking-alert > a {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .access-guide__footer {
+    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .access-guide__footer p {
+    display: none;
+  }
+
+  .access-guide__footer .button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 440px) {
+  .access-zone-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .access-zone-card {
+    min-height: 112px;
+  }
+
+  .access-guide-section__title a {
+    max-width: 100px;
+    white-space: normal;
+    text-align: right;
+  }
+}
+
+/* The permit picker keeps the same map component on phones. Everything uses
+   one vertical scroll container so nested fixed widths cannot escape the
+   viewport. */
+@media (max-width: 820px) {
+  .permit-modal,
+  .permit-modal__header,
+  .permit-modal__content,
+  .permit-picker,
+  .permit-detail-workspace,
+  .permit-detail,
+  .permit-modal__footer {
+    min-width: 0;
+    max-width: 100vw;
+  }
+
+  .permit-modal__header > div {
+    min-width: 0;
+  }
+
+  .permit-modal__header .circle-button {
+    flex: 0 0 auto;
+  }
+
+  .permit-modal__content {
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .permit-picker {
+    display: block;
+    width: 100%;
+    flex: 0 0 auto;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 12px;
+  }
+
+  .permit-choice,
+  .permit-choice--special {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: 52px;
+    margin: 0 0 6px;
+  }
+
+  .permit-choice > b {
+    min-width: 46px;
+    flex: 0 0 46px;
+  }
+
+  .permit-choice strong,
+  .permit-choice small,
+  .permit-choice small span {
+    min-width: 0;
+  }
+
+  .permit-choice.is-active {
+    box-shadow: inset 3px 0 var(--scarlet);
+  }
+
+  .permit-group {
+    display: block;
+    width: 100%;
+    margin-top: 14px;
+  }
+
+  .permit-group__title {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    padding: 2px 8px 6px;
+  }
+
+  .permit-group > div:last-child {
+    display: block;
+    min-width: 0;
+  }
+
+  .permit-detail-workspace {
+    display: flex;
+    width: 100%;
+    flex: 0 0 auto;
+    flex-direction: column;
+  }
+
+  .permit-preview {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 340px;
+    min-height: 340px;
+    flex: 0 0 340px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .permit-preview__status {
+    right: 54px;
+    bottom: 8px;
+    left: 8px;
+    min-width: 0;
+    font-size: 7px;
+  }
+
+  .campus-parking-map--preview .permit-map-summary {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  .campus-parking-map--preview .permit-zone-dock {
+    display: none;
+  }
+
+  .campus-parking-map--preview .permit-period-switcher-wrap {
+    top: 62px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .campus-parking-map--preview .permit-period-switcher__heading {
+    min-height: 32px;
+  }
+
+  .campus-parking-map--preview .permit-period-switcher__options {
+    padding-block: 4px;
+  }
+
+  .campus-parking-map--preview .permit-period-switcher__options button {
+    min-width: 92px;
+    min-height: 32px;
+  }
+
+  .campus-parking-map--preview .permit-period-switcher > p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .permit-detail {
+    width: 100%;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    padding: 22px 16px 38px;
+  }
+
+  .permit-detail__inner,
+  .ada-note,
+  .overnight-cost-planner,
+  .permit-facts,
+  .rule-grid {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .permit-detail__links a,
+  .inline-link {
+    max-width: 100%;
+    height: auto;
+    min-height: 33px;
+    white-space: normal;
+  }
+
+  .permit-modal__footer {
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+
+  .permit-modal__footer > div {
+    min-width: 0;
+  }
+
+  .permit-modal__footer .button {
+    min-width: 0;
+    padding-inline: 8px;
+    font-size: 8px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 520px) {
+  .permit-modal__header {
+    gap: 10px;
+  }
+
+  .permit-modal__header h2 {
+    overflow-wrap: anywhere;
+  }
+
+  .permit-identity-selector {
+    padding: 10px;
+  }
+
+  .permit-identity-selector > div[role="group"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .permit-identity-selector button {
+    min-width: 0;
+    padding-inline: 5px;
+  }
+
+  .permit-identity-selector button span {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .permit-choice small {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .overnight-cost-planner > header {
+    flex-wrap: wrap;
+  }
+
+  .overnight-cost-planner__duration {
+    width: 100%;
+    justify-content: flex-end;
+    padding-left: 39px;
+  }
+
+  .overnight-cost-planner__rates {
+    grid-template-columns: 1fr;
+  }
+
+  .overnight-cost-planner__rates > span {
+    border-right: 0;
+    border-bottom: 1px solid #e8e4f4;
+  }
+
+  .overnight-cost-planner__rates > span:last-child {
+    border-bottom: 0;
+  }
+
+  .permit-modal__footer > div {
+    gap: 5px;
+  }
+}
+
+@media (max-width: 430px) {
+  .map-controls--top {
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  .map-controls--top .map-layer-button {
+    width: 100%;
+    max-width: none;
+  }
+
+  .map-layer-button {
+    min-width: 0;
+    gap: 7px;
+    padding-inline: 8px;
+  }
+
+  .map-layer-button strong,
+  .map-layer-button--permit.is-unavailable strong {
+    max-width: none;
+  }
+
+  .parking-layer-dock {
+    top: 116px;
+    right: 8px;
+    width: calc(100% - 16px);
+    max-width: none;
+  }
+
+  .parking-layer-dock__body {
+    max-height: min(360px, calc(100dvh - 285px));
   }
 }
 
