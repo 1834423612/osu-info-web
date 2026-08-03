@@ -29,7 +29,7 @@ npm start
 - CampusParc 停车状态：浏览器直接请求 `https://garageapi.campusparc.com/status`，每 60 秒刷新；失败时使用浏览器中最后一次成功快照，再降级到仓库内的 `status-example.json`。
 - CABS：服务器路由聚合 `https://content.osu.edu/v2/bus` 的当前线路、线形与车辆；所选线路车辆每 15 秒刷新。线路代码不写死，停运时 0 辆车属于正常状态。
 - 停车证区域：先按本地身份筛选可购证件，再按所选证件与当前美东时段查询 Ohio State FITS ArcGIS 的 Parking 图层。地图用绿色、条纹琥珀、橙色和浅灰分别显示证件已含、稍后可停、访客计费和当前不可停。
-- EV：校内 Level 2 点位来自 Ohio State 官方清单；周边全部公开运营中的 Level 1、Level 2 与 DC 快充由 NLR/美国能源部 AFDC API 按校园中心 5 英里范围获取。Tesla West 3rd 站点另尝试读取官方价格与位置接口，并动态渲染会员/非 Tesla 分时价格和典型拥挤度。浏览器每 15 分钟检查更新并保留 6 小时缓存；Tesla 或 AFDC 拒绝访问时会明确标为快照/备用数据，绝不把预测拥挤度写成实时空闲枪位。
+- EV：浏览器直接用 GET 从 NLR/美国能源部 AFDC API 读取校园中心 5 英里内全部公开运营的 Level 1、Level 2 与 DC 快充（`limit=all`），并解析其价格字段；成功结果在浏览器缓存 6 小时，`DEMO_KEY` 请求失败后同样冷却 6 小时。范围内 Tesla 站点再由浏览器直接尝试官方详情与价格 GET；Tesla 403/CORS 时 West 3rd 使用明确标为非实时的官方快照，其他站保留 NLR 资料，绝不把典型拥挤度写成实时空闲枪位。
 - 时间：所有停车权限以 `America/New_York` 判断。设备处于其他时区时，界面同时显示 Columbus ET 与用户本地时间。
 
 ## 隐私
@@ -42,7 +42,7 @@ npm start
 - EV / CABS 图层开关
 - 上次成功的停车状态和 EV 站点快照
 
-地图的定位按钮会由浏览器直接申请一次性位置权限；位置不会写入本地存储。
+地图的定位按钮会由浏览器直接申请位置权限，并仅在主校区、医学中心、西校区与 Buckeye Lots 的缓冲范围内显示当前位置点；位置不会写入本地存储，离开页面后停止监听。
 
 ## 主要目录
 
@@ -58,7 +58,7 @@ src/
 
 ## 环境变量
 
-无需环境变量即可运行。可按 [.env.example](./.env.example) 覆盖 CampusParc 或 CABS 上游地址。EV 接口默认使用 NLR 的 `DEMO_KEY`；生产部署建议配置 `NLR_API_KEY`，减少公共演示密钥的限额影响。
+无需环境变量即可运行。可按 [.env.example](./.env.example) 覆盖 CampusParc 或 CABS 上游地址。EV 站点由用户浏览器直接 GET NLR，默认使用 `DEMO_KEY` 并在 `localStorage` 缓存 6 小时；生产部署可配置浏览器可见的 `NEXT_PUBLIC_NLR_API_KEY`。Tesla 两个详情接口同样由浏览器 GET，若被 Tesla 的 403/CORS 防护拒绝则明确降级为非实时快照，而不会转由服务器代请求。
 
 项目含动态 Route Handlers，因此部署目标需要支持 Next.js Node runtime；不适合纯静态文件托管。
 
@@ -68,7 +68,9 @@ src/
 - [CampusParc News](https://osu.campusparc.com/about-us/news/)
 - [CABS](https://ttm.osu.edu/cabs)
 - [NLR / AFDC Developer API](https://developer.nlr.gov/docs/transportation/alt-fuel-stations-v1/nearest/)
+- [NLR API rate limits](https://developer.nlr.gov/docs/rate-limits/)
 - [Tesla West 3rd Supercharger](https://www.tesla.com/findus/location/supercharger/18647)
+- [Tesla Greater Columbus Convention Center Supercharger](https://www.tesla.com/findus/location/supercharger/columbusohiosupercharger)
 - [Ohio State EV Charging](https://ttm.osu.edu/other-transit-and-services/electric-charging-stations)
 - [Ohio State Academic Calendar](https://registrar.osu.edu/academic-calendar/)
 - [OpenStreetMap copyright](https://www.openstreetmap.org/copyright)

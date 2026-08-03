@@ -20,6 +20,9 @@ export type TransitRouteLineProperties = {
   routeCode: string;
   routeName: string;
   patternId: string;
+  patternIndex: number;
+  patternCount: number;
+  lineOffset: number;
   color: string;
   darkColor: string;
   direction: string;
@@ -182,17 +185,26 @@ export function buildTransitRouteFeatureCollection(
     const color = route?.color || DEFAULT_ROUTE_COLOR;
     const darkColor = route?.darkColor || color;
 
-    detail.patterns.forEach((pattern) => {
+    detail.patterns.forEach((pattern, patternIndex) => {
       const coordinates = decodeRenderableLine(pattern.encodedPolyline);
       if (!coordinates) return;
 
+      // Opposing directions commonly share the same road. A small, symmetric
+      // offset keeps both complete paths legible instead of letting the last
+      // rendered pattern conceal the other one.
+      const lineOffset =
+        (patternIndex - (detail.patterns.length - 1) / 2) * 2;
+
       features.push({
         type: "Feature",
-        id: `${routeCode}:${pattern.id}`,
+        id: `${routeCode}:${pattern.id || patternIndex}`,
         properties: {
           routeCode,
           routeName: route?.name ?? routeCode,
           patternId: pattern.id,
+          patternIndex,
+          patternCount: detail.patterns.length,
+          lineOffset,
           color,
           darkColor,
           direction: pattern.direction?.trim() ?? "",

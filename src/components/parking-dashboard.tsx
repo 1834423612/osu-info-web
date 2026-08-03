@@ -822,11 +822,16 @@ export function ParkingDashboard() {
                 selectedRoute={selectedTransitRoute}
                 loading={transit.loading}
                 error={transit.feed.error}
-                onSelectRoute={(code) =>
-                  setSelectedTransitRoute((current) =>
-                    current === code ? undefined : code,
-                  )
-                }
+                onSelectRoute={(code) => {
+                  const opening = selectedTransitRoute !== code;
+                  setSelectedTransitRoute(opening ? code : undefined);
+                  if (opening && !transit.activeRoutes.includes(code)) {
+                    transit.toggleRoute(code);
+                  }
+                  if (opening && !preferences.mapTransitVisible) {
+                    update({ mapTransitVisible: true });
+                  }
+                }}
                 onToggleRoute={transit.toggleRoute}
               />
             ) : (
@@ -913,11 +918,16 @@ export function ParkingDashboard() {
                 onSelect={selectLocation}
                 transitFeed={transit.feed}
                 activeRoutes={transit.activeRoutes}
+                selectedTransitRoute={selectedTransitRoute}
                 showTransit={preferences.mapTransitVisible}
                 evStations={ev.stations}
                 showEv={preferences.evMode}
                 selectedEvStationId={selectedEvStationId}
-                onSelectEvStation={setSelectedEvStationId}
+                onSelectEvStation={(stationId) => {
+                  setSelectedEvStationId(stationId);
+                  setSidebarTab("charging");
+                  if (window.innerWidth <= 820) setMobileView("list");
+                }}
                 parkingAccessById={parkingAccessById}
                 permitLayer={{
                   areas: permitAreas.data,
@@ -964,19 +974,19 @@ export function ParkingDashboard() {
                     }
                   />
                   <span>
-                    <small>停车证区域</small>
+                    <small>我的停车证图层</small>
                     <strong>
                       {!permitSummary
                         ? "先设置停车证"
                         : !hasPermitZones
-                          ? "当前时段无通用地面区域"
+                          ? "当前时段无地面准停证区"
                         : permitAreas.loading
                           ? "读取官方 GIS"
                           : permitAreas.error
                             ? "加载失败 · 点击重试"
                           : showPermitAreas
-                            ? `${permitZones.join(" / ")} · ${permitAreas.data.features.length} 处`
-                            : "已隐藏 · 点击显示"}
+                            ? `${permitZones.join(" / ")} 准停证区 · 已显示`
+                            : "证区边界已隐藏 · 点击显示"}
                     </strong>
                   </span>
                   <i />

@@ -48,7 +48,7 @@ export type EvTeslaPriceAudience = {
 
 export type EvTeslaDetails = {
   locationSlug: string;
-  /** `live` means fetched from Tesla by this server response. */
+  /** `live` means fetched directly from Tesla by the current browser. */
   dataState: EvTeslaDataState;
   fetchedAt: string;
   sourceUpdatedAt?: string;
@@ -131,4 +131,6 @@ export type EvStationsResponse = {
   sourceUpdatedAt?: string;
   isFallback: boolean;
   warning?: string;
+  /** Upstream services are intentionally requested by the browser, not Next.js. */
+  requestOrigin?: "browser";
 };

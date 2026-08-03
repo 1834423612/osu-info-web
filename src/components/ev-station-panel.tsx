@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "@/components/ev-station-panel.module.css";
 import type {
@@ -10,7 +10,14 @@ import type {
   EvTeslaPriceAudience,
 } from "@/types/ev";
 
-type StationFilter = "all" | "dc-fast" | "level-2" | "campus";
+type StationFilter =
+  | "all"
+  | "tesla"
+  | "dc-fast"
+  | "level-2"
+  | "campus"
+  | "public";
+type StationSort = "distance" | "power" | "capacity" | "name";
 
 export type EvStationPanelProps = {
   stations: EvStation[];
@@ -27,9 +34,11 @@ export type EvStationPanelProps = {
 const CAMPUS_CENTER = { latitude: 40.0067, longitude: -83.0305 };
 const FILTERS: Array<{ id: StationFilter; label: string }> = [
   { id: "all", label: "全部" },
-  { id: "dc-fast", label: "DC 快充" },
+  { id: "tesla", label: "Tesla" },
+  { id: "dc-fast", label: "其他快充" },
   { id: "level-2", label: "Level 2" },
   { id: "campus", label: "校内" },
+  { id: "public", label: "普通公共" },
 ];
 const DAY_NAMES = [
   "sunday",
@@ -68,6 +77,13 @@ function speedLabel(station: EvStation) {
       return "功率级别未公开";
     })
     .join(" + ");
+}
+
+function maximumPower(station: EvStation) {
+  return station.connectors.reduce(
+    (maximum, connector) => Math.max(maximum, connector.powerKw ?? 0),
+    0,
+  );
 }
 
 function formatTimestamp(value?: string) {
@@ -287,9 +303,17 @@ function TeslaPricing({ station }: { station: EvStation }) {
 }
 
 function StationDetails({ station }: { station: EvStation }) {
-  const source = station.sources[0];
-  const sourceUrl = safeHttpsUrl(source?.url);
-  const website = safeHttpsUrl(station.website);
+  const stationPage = safeHttpsUrl(station.website);
+  const networkPage = station.sources.find((source) => {
+    const url = safeHttpsUrl(source.url);
+    return (
+      url &&
+      url !== stationPage &&
+      !url.includes("/api/") &&
+      !source.label.includes("接口")
+    );
+  });
+  const networkPageUrl = safeHttpsUrl(networkPage?.url);
   return (
     <div className={styles.stationDetails}>
       <dl>
@@ -333,6 +357,14 @@ function StationDetails({ station }: { station: EvStation }) {
       {station.accessNote && (
         <p className={styles.accessNote}>{station.accessNote}</p>
       )}
+      {station.networkKind === "tesla-supercharger" &&
+        !station.teslaDetails && (
+          <p className={styles.teslaUnavailable}>
+            <Icon icon="solar:shield-warning-bold-duotone" />
+            Tesla 详情与价格 GET 已由浏览器直接请求；若 Tesla 的跨域防护拦截，本站仅显示
+            NLR 公开资料，价格与拥挤度不会伪装为实时。
+          </p>
+        )}
       <TeslaPricing station={station} />
       <footer>
         <span>
@@ -341,14 +373,23 @@ function StationDetails({ station }: { station: EvStation }) {
             : "未公开实时空闲端口"}
         </span>
         <div>
-          {sourceUrl && (
-            <a href={sourceUrl} target="_blank" rel="noreferrer">
-              数据来源
+          {stationPage && (
+            <a
+              className={styles.primaryLink}
+              href={stationPage}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {station.networkKind === "tesla-supercharger"
+                ? "打开 Tesla 站点详情"
+                : station.campusLocation
+                  ? "打开校方站点详情"
+                  : "打开 AFDC 站点详情"}
             </a>
           )}
-          {website && website !== sourceUrl && (
-            <a href={website} target="_blank" rel="noreferrer">
-              运营商页面
+          {networkPageUrl && (
+            <a href={networkPageUrl} target="_blank" rel="noreferrer">
+              {networkPage?.label ?? "运营商官网"}
             </a>
           )}
         </div>
@@ -369,90 +410,204 @@ export function EvStationPanel({
   onToggleMap,
 }: EvStationPanelProps) {
   const [filter, setFilter] = useState<StationFilter>("all");
-  const [expandedId, setExpandedId] = useState<string | undefined>(selectedId);
-  const sortedStations = useMemo(
-    () =>
-      [...stations].sort((left, right) => {
-        if (left.campusLocation && !right.campusLocation) return -1;
-        if (!left.campusLocation && right.campusLocation) return 1;
+  const [sort, setSort] = useState<StationSort>("distance");
+  const [query, setQuery] = useState("");
+  const [expandedId, setExpandedId] = useState<string>();
+  const [collapsedSelectedId, setCollapsedSelectedId] = useState<string>();
+  const listRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef(new Map<string, HTMLElement>());
+
+  useEffect(() => {
+    if (!selectedId || !stations.some((station) => station.id === selectedId)) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const list = listRef.current;
+      const card = cardRefs.current.get(selectedId);
+      if (!list || !card) return;
+      list.scrollTo({
+        top: Math.max(0, card.offsetTop - list.offsetTop - 8),
+        behavior: "smooth",
+      });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [selectedId, stations]);
+
+  const filteredStations = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const matchesFilter = (station: EvStation) => {
+      if (filter === "all") return true;
+      if (filter === "tesla") {
+        return station.networkKind === "tesla-supercharger";
+      }
+      if (filter === "campus") return Boolean(station.campusLocation);
+      if (filter === "public") {
+        return (
+          !station.campusLocation &&
+          station.networkKind !== "tesla-supercharger"
+        );
+      }
+      if (filter === "dc-fast") {
+        return (
+          station.networkKind !== "tesla-supercharger" &&
+          Boolean(station.chargingSpeeds?.includes("dc-fast"))
+        );
+      }
+      return Boolean(station.chargingSpeeds?.includes("level-2"));
+    };
+    const matchesQuery = (station: EvStation) =>
+      !normalizedQuery ||
+      [station.name, station.operator, station.address]
+        .filter(Boolean)
+        .some((value) =>
+          value!.toLocaleLowerCase().includes(normalizedQuery),
+        );
+
+    return stations
+      .filter(
+        (station) =>
+          station.id === selectedId ||
+          (matchesFilter(station) && matchesQuery(station)),
+      )
+      .sort((left, right) => {
+        if (sort === "name") return left.name.localeCompare(right.name);
+        if (sort === "capacity") {
+          return (
+            (right.capacity ?? 0) - (left.capacity ?? 0) ||
+            distanceMiles(left) - distanceMiles(right)
+          );
+        }
+        if (sort === "power") {
+          return (
+            maximumPower(right) - maximumPower(left) ||
+            distanceMiles(left) - distanceMiles(right)
+          );
+        }
         return distanceMiles(left) - distanceMiles(right);
-      }),
-    [stations],
-  );
-  const filteredStations = sortedStations.filter((station) => {
-    if (filter === "all") return true;
-    if (filter === "campus") return Boolean(station.campusLocation);
-    return station.chargingSpeeds?.includes(filter) ?? false;
-  });
+      });
+  }, [filter, query, selectedId, sort, stations]);
+
   const counts: Record<StationFilter, number> = {
     all: stations.length,
+    tesla: stations.filter(
+      (station) => station.networkKind === "tesla-supercharger",
+    ).length,
     "dc-fast": stations.filter((station) =>
+      station.networkKind !== "tesla-supercharger" &&
       station.chargingSpeeds?.includes("dc-fast"),
     ).length,
     "level-2": stations.filter((station) =>
       station.chargingSpeeds?.includes("level-2"),
     ).length,
     campus: stations.filter((station) => station.campusLocation).length,
+    public: stations.filter(
+      (station) =>
+        !station.campusLocation &&
+        station.networkKind !== "tesla-supercharger",
+    ).length,
   };
 
   return (
     <section className={styles.panel} aria-label="校园附近充电站">
-      <div className={styles.heading}>
-        <div>
-          <small>EV CHARGING</small>
-          <h2>校园附近充电站</h2>
-          <p>校内 Level 2 与周边公共充电站统一查看，费用和接口按来源分别标注。</p>
+      <div className={styles.panelHeader}>
+        <div className={styles.heading}>
+          <div>
+            <small>EV CHARGING</small>
+            <h2>校园附近充电站</h2>
+            <p>
+              浏览器直连 NLR 获取校园 5 英里内站点；Tesla 详情单独标注实时或快照。
+            </p>
+          </div>
+          {onToggleMap && (
+            <button type="button" onClick={onToggleMap} aria-pressed={mapVisible}>
+              <Icon icon={mapVisible ? "solar:map-bold" : "solar:map-linear"} />
+              {mapVisible ? "地图已显示" : "显示在地图"}
+            </button>
+          )}
         </div>
-        {onToggleMap && (
-          <button type="button" onClick={onToggleMap} aria-pressed={mapVisible}>
-            <Icon icon={mapVisible ? "solar:map-bold" : "solar:map-linear"} />
-            {mapVisible ? "地图已显示" : "显示在地图"}
-          </button>
+
+        <div className={styles.filters} role="tablist" aria-label="充电站类型">
+          {FILTERS.map((option) => (
+            <button
+              type="button"
+              key={option.id}
+              className={filter === option.id ? styles.activeFilter : undefined}
+              onClick={() => setFilter(option.id)}
+              role="tab"
+              aria-selected={filter === option.id}
+            >
+              {option.label}
+              <span>{counts[option.id]}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.listTools}>
+          <label className={styles.searchField}>
+            <Icon icon="solar:magnifer-linear" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索站名、地址或运营商"
+              aria-label="搜索充电站"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="清空搜索"
+              >
+                <Icon icon="solar:close-circle-bold" />
+              </button>
+            )}
+          </label>
+          <label className={styles.sortField}>
+            <Icon icon="solar:sort-vertical-linear" />
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value as StationSort)}
+              aria-label="充电站排序"
+            >
+              <option value="distance">距校园最近</option>
+              <option value="power">功率最高</option>
+              <option value="capacity">端口最多</option>
+              <option value="name">名称 A–Z</option>
+            </select>
+          </label>
+        </div>
+
+        {(warning || error) && (
+          <details className={error ? styles.errorNotice : styles.warningNotice}>
+            <summary>
+              <Icon
+                icon={
+                  error
+                    ? "solar:danger-triangle-bold"
+                    : "solar:info-circle-bold"
+                }
+              />
+              <span>{error ? "公共站点读取受限" : "部分详情已安全降级"}</span>
+              <Icon icon="solar:alt-arrow-down-linear" />
+            </summary>
+            <p>{error ?? warning}</p>
+          </details>
         )}
-      </div>
 
-      <div className={styles.filters} role="tablist" aria-label="充电站类型">
-        {FILTERS.map((option) => (
-          <button
-            type="button"
-            key={option.id}
-            className={filter === option.id ? styles.activeFilter : undefined}
-            onClick={() => setFilter(option.id)}
-            role="tab"
-            aria-selected={filter === option.id}
-          >
-            {option.label}
-            <span>{counts[option.id]}</span>
-          </button>
-        ))}
-      </div>
-
-      {(warning || error) && (
-        <div className={error ? styles.errorNotice : styles.warningNotice}>
-          <Icon
-            icon={
-              error
-                ? "solar:danger-triangle-bold"
-                : "solar:info-circle-bold"
-            }
-          />
-          <span>{error ?? warning}</span>
+        <div className={styles.dataLine}>
+          <span>
+            {loading && stations.length === 0
+              ? "正在从浏览器读取充电网络…"
+              : `${filteredStations.length} / ${stations.length} 个站点`}
+          </span>
+          {updatedAt && <span>数据 {formatTimestamp(updatedAt)}</span>}
         </div>
-      )}
-
-      <div className={styles.dataLine}>
-        <span>
-          {loading && stations.length === 0
-            ? "正在读取充电网络…"
-            : filteredStations.length + " 个站点"}
-        </span>
-        {updatedAt && <span>数据 {formatTimestamp(updatedAt)}</span>}
       </div>
 
-      <div className={styles.stationList}>
+      <div className={styles.stationList} ref={listRef}>
         {filteredStations.map((station) => {
           const expanded =
-            expandedId === station.id || selectedId === station.id;
+            expandedId === station.id ||
+            (selectedId === station.id && collapsedSelectedId !== station.id);
           const distance = distanceMiles(station);
           const isTesla = station.networkKind === "tesla-supercharger";
           const cardClass =
@@ -461,14 +616,27 @@ export function EvStationPanel({
           const iconClass =
             styles.networkIcon + (isTesla ? " " + styles.teslaIcon : "");
           return (
-            <article key={station.id} className={cardClass}>
+            <article
+              key={station.id}
+              className={cardClass}
+              ref={(node) => {
+                if (node) cardRefs.current.set(station.id, node);
+                else cardRefs.current.delete(station.id);
+              }}
+            >
               <button
                 type="button"
                 className={styles.stationSummary}
                 onClick={() => {
-                  setExpandedId((current) =>
-                    current === station.id ? undefined : station.id,
-                  );
+                  if (expanded) {
+                    setExpandedId(undefined);
+                    if (selectedId === station.id) {
+                      setCollapsedSelectedId(station.id);
+                    }
+                  } else {
+                    setExpandedId(station.id);
+                    setCollapsedSelectedId(undefined);
+                  }
                   onSelectStation?.(station);
                 }}
                 aria-expanded={expanded}

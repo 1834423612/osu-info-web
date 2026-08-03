@@ -6,13 +6,9 @@ import type {
   EvTeslaPriceAudience,
 } from "@/types/ev";
 
-const TESLA_LOCATION_SLUG = "18647";
-const TESLA_SITE_URL =
+const TESLA_WEST_THIRD_LOCATION_SLUG = "18647";
+const TESLA_WEST_THIRD_SITE_URL =
   "https://www.tesla.com/findus/location/supercharger/18647";
-const TESLA_CHARGER_DETAILS_URL =
-  "https://www.tesla.com/api/findus/get-charger-details?locationSlug=18647&programType=supercharger&locale=en-US&isInHkMoTw=false";
-const TESLA_LOCATION_DETAILS_URL =
-  "https://www.tesla.com/api/findus/get-location-details?locationSlug=18647&functionTypes=nacs&locale=en_US&isInHkMoTw=false";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -192,9 +188,10 @@ function mapTeslaStatus(value: unknown): EvStationStatus {
 }
 
 function formatPricingSummary(pricing: EvTeslaPriceAudience[]) {
-  const rates = pricing.flatMap((group) =>
-    group.periods.map((period) => period.rate),
-  );
+  const rates = pricing.flatMap((group) => [
+    ...(group.baseRate !== undefined ? [group.baseRate] : []),
+    ...group.periods.map((period) => period.rate),
+  ]);
   if (!rates.length) return "Tesla 官方未返回当前分时价格";
   const minimum = Math.min(...rates);
   const maximum = Math.max(...rates);
@@ -223,11 +220,33 @@ function buildAddress(record: JsonRecord | undefined) {
     .join(" ");
 }
 
-export function parseTeslaWestThird(
+export type TeslaStationIdentity = {
+  locationSlug: string;
+  siteUrl: string;
+  baseStation?: EvStation;
+};
+
+export function teslaDetailsEndpoints(locationSlug: string) {
+  const encodedSlug = encodeURIComponent(locationSlug);
+  return {
+    chargerDetails:
+      `https://www.tesla.com/api/findus/get-charger-details?locationSlug=${encodedSlug}` +
+      "&programType=supercharger&locale=en-US&isInHkMoTw=false",
+    locationDetails:
+      `https://www.tesla.com/api/findus/get-location-details?locationSlug=${encodedSlug}` +
+      "&functionTypes=nacs&locale=en_US&isInHkMoTw=false",
+  } as const;
+}
+
+export function parseTeslaStation(
   chargerPayload: unknown,
   locationPayload: unknown,
   dataState: EvTeslaDataState,
   fetchedAt: string,
+  identity: TeslaStationIdentity = {
+    locationSlug: TESLA_WEST_THIRD_LOCATION_SLUG,
+    siteUrl: TESLA_WEST_THIRD_SITE_URL,
+  },
 ): EvStation {
   const charger = nestedRecord(chargerPayload, ["data", "data"]);
   const location = nestedRecord(locationPayload, ["data"]);
@@ -277,8 +296,11 @@ export function parseTeslaWestThird(
       )
     : [];
 
+  const endpoints = teslaDetailsEndpoints(identity.locationSlug);
+  const base = identity.baseStation;
   return {
-    id: `tesla-supercharger-${TESLA_LOCATION_SLUG}`,
+    ...base,
+    id: base?.id ?? `tesla-supercharger-${identity.locationSlug}`,
     name: `Tesla Supercharger · ${siteName}`,
     latitude,
     longitude,
@@ -307,23 +329,29 @@ export function parseTeslaWestThird(
       : "车辆兼容性和接入权限以 Tesla App 为准。拥挤度为典型时段预测，不是实时空闲端口。",
     sources: [
       {
+        label: "Tesla 官方站点页",
+        url: identity.siteUrl,
+        checkedAt: fetchedAt,
+      },
+      {
         label: "Tesla 官方充电详情接口",
-        url: TESLA_CHARGER_DETAILS_URL,
+        url: endpoints.chargerDetails,
         checkedAt: fetchedAt,
       },
       {
         label: "Tesla 官方位置详情接口",
-        url: TESLA_LOCATION_DETAILS_URL,
+        url: endpoints.locationDetails,
         checkedAt: fetchedAt,
       },
-      {
-        label: "Tesla 官方站点页",
-        url: TESLA_SITE_URL,
-        checkedAt: fetchedAt,
-      },
+      ...(base?.sources ?? []).filter(
+        (source) =>
+          source.url !== identity.siteUrl &&
+          source.url !== endpoints.chargerDetails &&
+          source.url !== endpoints.locationDetails,
+      ),
     ],
     teslaDetails: {
-      locationSlug: TESLA_LOCATION_SLUG,
+      locationSlug: identity.locationSlug,
       dataState,
       fetchedAt,
       sourceUpdatedAt,
@@ -344,13 +372,26 @@ export function parseTeslaWestThird(
     },
     openingHours: twentyFourSeven ? "24/7" : undefined,
     power: maxPowerKw ? `最高 ${maxPowerKw} kW` : "Tesla Supercharger",
-    website: TESLA_SITE_URL,
+    website: identity.siteUrl,
     isTesla: true,
     source: dataState === "live" ? "tesla" : "fallback",
   };
 }
 
+export function parseTeslaWestThird(
+  chargerPayload: unknown,
+  locationPayload: unknown,
+  dataState: EvTeslaDataState,
+  fetchedAt: string,
+) {
+  return parseTeslaStation(
+    chargerPayload,
+    locationPayload,
+    dataState,
+    fetchedAt,
+  );
+}
+
 export const TESLA_WEST_THIRD_ENDPOINTS = {
-  chargerDetails: TESLA_CHARGER_DETAILS_URL,
-  locationDetails: TESLA_LOCATION_DETAILS_URL,
+  ...teslaDetailsEndpoints(TESLA_WEST_THIRD_LOCATION_SLUG),
 } as const;

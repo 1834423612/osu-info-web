@@ -324,62 +324,247 @@ export function MapControls({
   showZoom = true,
   showCompass = true,
   showLocate = false,
+  locationBounds,
+  locationOutsideMessage = "当前位置距离校园较远，未在地图上显示定位点",
 }: {
   position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
   showZoom?: boolean;
   showCompass?: boolean;
   showLocate?: boolean;
+  locationBounds?: {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+  };
+  locationOutsideMessage?: string;
 }) {
   const { map } = useMap();
+  const [userLocation, setUserLocation] = useState<{
+    longitude: number;
+    latitude: number;
+    accuracy: number;
+  }>();
+  const [locationStatus, setLocationStatus] = useState<{
+    kind: "loading" | "success" | "outside" | "error";
+    message: string;
+  }>();
+  const watchIdRef = useRef<number | undefined>(undefined);
+  const shouldFocusLocationRef = useRef(false);
+  const insideLocationBoundsRef = useRef<boolean | undefined>(undefined);
+  const locationStatusKind = locationStatus?.kind;
+
+  useEffect(
+    () => () => {
+      if (watchIdRef.current !== undefined) {
+        navigator.geolocation?.clearWatch(watchIdRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!locationStatusKind || locationStatusKind === "loading") return;
+    const timeout = window.setTimeout(
+      () => setLocationStatus(undefined),
+      locationStatusKind === "success" ? 4_500 : 7_000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [locationStatusKind]);
+
   if (!map) return null;
-  const locate = () => {
-    navigator.geolocation?.getCurrentPosition((positionValue) => {
-      map.easeTo({
-        center: [
-          positionValue.coords.longitude,
-          positionValue.coords.latitude,
-        ],
-        zoom: Math.max(map.getZoom(), 15),
-        duration: 500,
-      });
+
+  const isInsideLocationBounds = (longitude: number, latitude: number) =>
+    !locationBounds ||
+    (longitude >= locationBounds.west &&
+      longitude <= locationBounds.east &&
+      latitude >= locationBounds.south &&
+      latitude <= locationBounds.north);
+
+  const focusLocation = (longitude: number, latitude: number) => {
+    map.easeTo({
+      center: [longitude, latitude],
+      zoom: Math.max(map.getZoom(), 15),
+      duration: 500,
     });
   };
 
+  const updateLocation = (positionValue: GeolocationPosition) => {
+    const nextLocation = {
+      longitude: positionValue.coords.longitude,
+      latitude: positionValue.coords.latitude,
+      accuracy: positionValue.coords.accuracy,
+    };
+    if (
+      !isInsideLocationBounds(
+        nextLocation.longitude,
+        nextLocation.latitude,
+      )
+    ) {
+      setUserLocation(undefined);
+      if (insideLocationBoundsRef.current !== false) {
+        setLocationStatus({
+          kind: "outside",
+          message: locationOutsideMessage,
+        });
+      }
+      insideLocationBoundsRef.current = false;
+      shouldFocusLocationRef.current = false;
+      return;
+    }
+
+    setUserLocation(nextLocation);
+    if (
+      insideLocationBoundsRef.current !== true ||
+      shouldFocusLocationRef.current
+    ) {
+      setLocationStatus({
+        kind: "success",
+        message: `已定位 · 精度约 ${Math.max(1, Math.round(nextLocation.accuracy))} 米`,
+      });
+    }
+    insideLocationBoundsRef.current = true;
+    if (shouldFocusLocationRef.current) {
+      shouldFocusLocationRef.current = false;
+      focusLocation(nextLocation.longitude, nextLocation.latitude);
+    }
+  };
+
+  const handleLocationError = (error: GeolocationPositionError) => {
+    shouldFocusLocationRef.current = false;
+    insideLocationBoundsRef.current = undefined;
+    setUserLocation(undefined);
+    setLocationStatus({
+      kind: "error",
+      message:
+        error.code === error.PERMISSION_DENIED
+          ? "无法定位：请在浏览器中允许位置权限"
+          : "暂时无法获取位置，请稍后重试",
+    });
+  };
+
+  const locate = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus({
+        kind: "error",
+        message: "当前浏览器不支持设备定位",
+      });
+      return;
+    }
+
+    shouldFocusLocationRef.current = true;
+    setLocationStatus({ kind: "loading", message: "正在获取设备位置…" });
+
+    if (watchIdRef.current !== undefined && userLocation) {
+      shouldFocusLocationRef.current = false;
+      focusLocation(userLocation.longitude, userLocation.latitude);
+      setLocationStatus({
+        kind: "success",
+        message: `已定位 · 精度约 ${Math.max(1, Math.round(userLocation.accuracy))} 米`,
+      });
+      return;
+    }
+
+    if (watchIdRef.current !== undefined) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    insideLocationBoundsRef.current = undefined;
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      updateLocation,
+      handleLocationError,
+      {
+        enableHighAccuracy: true,
+        maximumAge: 15_000,
+        timeout: 12_000,
+      },
+    );
+  };
+
   return (
-    <MapOverlay position={position} className="mapcn-controls">
-      {showLocate && (
-        <button type="button" onClick={locate} aria-label="定位到当前位置">
-          <Icon icon="solar:map-point-bold-duotone" />
-        </button>
-      )}
-      {showCompass && (
-        <button
-          type="button"
-          onClick={() => map.easeTo({ bearing: 0, pitch: 0, duration: 300 })}
-          aria-label="地图朝北"
+    <>
+      {showLocate && userLocation && (
+        <MapMarker
+          longitude={userLocation.longitude}
+          latitude={userLocation.latitude}
+          anchor="center"
         >
-          <Icon icon="solar:compass-big-bold-duotone" />
-        </button>
+          <MarkerContent className="mapcn-user-location">
+            <span
+              role="img"
+              aria-label={`你的当前位置，定位精度约 ${Math.max(1, Math.round(userLocation.accuracy))} 米`}
+              title={`当前位置 · 精度约 ${Math.max(1, Math.round(userLocation.accuracy))} 米`}
+            >
+              <i />
+            </span>
+          </MarkerContent>
+        </MapMarker>
       )}
-      {showZoom && (
-        <>
-          <button
-            type="button"
-            onClick={() => map.zoomIn({ duration: 200 })}
-            aria-label="放大地图"
+      <MapOverlay position={position} className="mapcn-controls-wrap">
+        {locationStatus && (
+          <div
+            className={cn(
+              "mapcn-location-status",
+              `is-${locationStatus.kind}`,
+            )}
+            role="status"
+            aria-live="polite"
           >
-            <Icon icon="solar:add-circle-bold" />
-          </button>
-          <button
-            type="button"
-            onClick={() => map.zoomOut({ duration: 200 })}
-            aria-label="缩小地图"
-          >
-            <Icon icon="solar:minus-circle-bold" />
-          </button>
-        </>
-      )}
-    </MapOverlay>
+            <Icon
+              icon={
+                locationStatus.kind === "loading"
+                  ? "solar:refresh-circle-bold-duotone"
+                  : locationStatus.kind === "success"
+                    ? "solar:gps-bold-duotone"
+                    : locationStatus.kind === "outside"
+                      ? "solar:map-point-remove-bold-duotone"
+                      : "solar:danger-triangle-bold-duotone"
+              }
+            />
+            <span>{locationStatus.message}</span>
+          </div>
+        )}
+        <div className="mapcn-controls">
+          {showLocate && (
+            <button
+              type="button"
+              onClick={locate}
+              aria-label="定位到当前位置"
+              className={userLocation ? "is-active" : undefined}
+              title={userLocation ? "重新回到当前位置" : "定位到当前位置"}
+            >
+              <Icon icon="solar:map-point-bold-duotone" />
+            </button>
+          )}
+          {showCompass && (
+            <button
+              type="button"
+              onClick={() => map.easeTo({ bearing: 0, pitch: 0, duration: 300 })}
+              aria-label="地图朝北"
+            >
+              <Icon icon="solar:compass-big-bold-duotone" />
+            </button>
+          )}
+          {showZoom && (
+            <>
+              <button
+                type="button"
+                onClick={() => map.zoomIn({ duration: 200 })}
+                aria-label="放大地图"
+              >
+                <Icon icon="solar:add-circle-bold" />
+              </button>
+              <button
+                type="button"
+                onClick={() => map.zoomOut({ duration: 200 })}
+                aria-label="缩小地图"
+              >
+                <Icon icon="solar:minus-circle-bold" />
+              </button>
+            </>
+          )}
+        </div>
+      </MapOverlay>
+    </>
   );
 }
 

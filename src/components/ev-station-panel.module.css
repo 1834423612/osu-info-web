@@ -1,9 +1,22 @@
 .panel {
   display: flex;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px;
+  overflow: hidden;
+}
+
+.panelHeader {
+  z-index: 2;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid #e4e7ec;
+  padding: 16px 18px 11px;
+  background: rgb(255 255 255 / 97%);
+  box-shadow: 0 8px 18px -18px rgb(16 24 40 / 45%);
 }
 
 .heading {
@@ -35,8 +48,8 @@
   max-width: 540px;
   margin: 6px 0 0;
   color: #667085;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .heading > button {
@@ -68,9 +81,10 @@
 }
 
 .filters {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
   gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
   padding: 4px;
   border: 1px solid #e4e7ec;
   border-radius: 12px;
@@ -80,7 +94,8 @@
 .filters button {
   display: flex;
   min-width: 0;
-  min-height: 34px;
+  min-height: 32px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 5px;
@@ -92,6 +107,8 @@
   font-size: 11px;
   font-weight: 750;
   cursor: pointer;
+  padding: 0 9px;
+  white-space: nowrap;
 }
 
 .filters button span {
@@ -117,14 +134,10 @@
 
 .warningNotice,
 .errorNotice {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   border: 1px solid #fedf89;
   border-radius: 11px;
   background: #fffaeb;
   color: #7a2e0e;
-  padding: 10px 11px;
   font-size: 11px;
   line-height: 1.55;
 }
@@ -135,12 +148,121 @@
   color: #b42318;
 }
 
-.warningNotice svg,
-.errorNotice svg {
+.warningNotice summary,
+.errorNotice summary {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.warningNotice summary::-webkit-details-marker,
+.errorNotice summary::-webkit-details-marker {
+  display: none;
+}
+
+.warningNotice summary svg,
+.errorNotice summary svg {
   flex: none;
   width: 16px;
   height: 16px;
-  margin-top: 1px;
+}
+
+.warningNotice summary svg:last-child,
+.errorNotice summary svg:last-child {
+  width: 14px;
+  height: 14px;
+  transition: transform 150ms ease;
+}
+
+.warningNotice[open] summary svg:last-child,
+.errorNotice[open] summary svg:last-child {
+  transform: rotate(180deg);
+}
+
+.warningNotice p,
+.errorNotice p {
+  max-height: 76px;
+  overflow-y: auto;
+  margin: 0;
+  border-top: 1px solid rgb(247 144 9 / 20%);
+  padding: 8px 10px;
+  font-size: 9px;
+}
+
+.listTools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 126px;
+  gap: 7px;
+}
+
+.searchField,
+.sortField {
+  display: flex;
+  min-width: 0;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d7dce3;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 9px;
+  color: #667085;
+}
+
+.searchField:focus-within,
+.sortField:focus-within {
+  border-color: #fda4af;
+  box-shadow: 0 0 0 3px rgb(253 164 175 / 18%);
+}
+
+.searchField > svg,
+.sortField > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.searchField input,
+.sortField select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #344054;
+  font: inherit;
+  font-size: 10px;
+}
+
+.searchField input::placeholder {
+  color: #98a2b3;
+}
+
+.searchField button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #98a2b3;
+  cursor: pointer;
+}
+
+.searchField button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sortField select {
+  cursor: pointer;
 }
 
 .dataLine {
@@ -154,9 +276,15 @@
 
 .stationList {
   display: flex;
+  min-height: 0;
   min-width: 0;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 11px 18px 20px;
+  scroll-padding-top: 10px;
 }
 
 .stationCard {
@@ -320,6 +448,27 @@
   line-height: 1.55;
 }
 
+.teslaUnavailable {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 10px 0 0;
+  border: 1px solid #fedf89;
+  border-radius: 9px;
+  background: #fffaeb;
+  color: #7a2e0e;
+  padding: 8px 9px;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.teslaUnavailable svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+
 .stationDetails > footer {
   display: flex;
   align-items: center;
@@ -332,6 +481,8 @@
 
 .stationDetails > footer div {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -339,6 +490,13 @@
   color: #1570ef;
   font-weight: 750;
   text-decoration: none;
+}
+
+.stationDetails > footer .primaryLink {
+  border-radius: 7px;
+  background: #eff8ff;
+  padding: 4px 7px;
+  color: #175cd3;
 }
 
 .teslaPricing {
@@ -572,9 +730,9 @@
 }
 
 @media (max-width: 560px) {
-  .panel {
-    gap: 12px;
-    padding: 13px;
+  .panelHeader {
+    gap: 8px;
+    padding: 12px 13px 9px;
   }
 
   .heading {
@@ -597,9 +755,17 @@
   }
 
   .filters button {
-    flex-direction: column;
-    gap: 2px;
-    padding: 4px 2px;
+    min-height: 30px;
+    gap: 4px;
+    padding: 3px 8px;
+  }
+
+  .listTools {
+    grid-template-columns: minmax(0, 1fr) 108px;
+  }
+
+  .stationList {
+    padding: 10px 12px 80px;
   }
 
   .stationSummary {

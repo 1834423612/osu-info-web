@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { FeatureCollection, Geometry } from "geojson";
 import type {
@@ -38,6 +38,15 @@ import type { ParkingLocation } from "@/types/parking";
 import type { TransitFeed } from "@/types/transit";
 
 const CAMPUS_CENTER: [number, number] = [-83.0226, 40.0035];
+// Main campus, medical center, west campus and Buckeye Lots, with a small GPS
+// accuracy buffer. A device outside this box should not leave a misleading
+// "you are here" marker on the campus map.
+const CAMPUS_LOCATION_BOUNDS = {
+  west: -83.059,
+  south: 39.975,
+  east: -82.993,
+  north: 40.031,
+} as const;
 const CABS_SOURCE_ID = "campus-cabs-routes";
 const CABS_HALO_LAYER_ID = "campus-cabs-routes-halo";
 const CABS_LINE_LAYER_ID = "campus-cabs-routes-line";
@@ -83,6 +92,7 @@ export type CampusMapProps = {
   onSelect?: (id: number) => void;
   transitFeed?: TransitFeed;
   activeRoutes?: string[];
+  selectedTransitRoute?: string;
   showTransit?: boolean;
   evStations?: EvStation[];
   showEv?: boolean;
@@ -309,6 +319,13 @@ function createDirectionArrowImage(): ImageData {
   context.lineTo(9, 26);
   context.stroke();
   return context.getImageData(0, 0, 32, 32);
+}
+
+function transitMarkerScaleForZoom(zoom: number) {
+  if (zoom < 12.5) return 0.7;
+  if (zoom < 14) return 0.82;
+  if (zoom < 15.5) return 0.92;
+  return 1;
 }
 
 function ParkingMarker({
@@ -560,6 +577,13 @@ function safeHttpsUrl(value?: string, base?: string) {
 }
 
 function EvStationPopup({ station }: { station: EvStation }) {
+  const chargingLevel = station.chargingSpeeds?.includes("dc-fast")
+    ? "DC FAST"
+    : station.chargingSpeeds?.includes("level-2")
+      ? "LEVEL 2"
+      : station.chargingSpeeds?.includes("level-1")
+        ? "LEVEL 1"
+        : "EV CHARGING";
   const hasRealtimeAvailability =
     station.availabilityIsRealtime &&
     typeof station.availablePorts === "number" &&
@@ -596,7 +620,7 @@ function EvStationPopup({ station }: { station: EvStation }) {
       <small>
         {station.networkKind === "tesla-supercharger"
           ? "TESLA SUPERCHARGER"
-          : `${station.operator ?? "PUBLIC EV"} · DC FAST`}
+          : `${station.operator ?? "PUBLIC EV"} · ${chargingLevel}`}
       </small>
       <strong>{station.name}</strong>
       <section className="ev-popup-availability">
@@ -604,7 +628,7 @@ function EvStationPopup({ station }: { station: EvStation }) {
           {availablePorts !== undefined
             ? `${availablePorts} / ${station.capacity} 可用`
             : station.capacity
-              ? `${station.capacity} 个快充端口`
+              ? `${station.capacity} 个充电端口`
               : "端口数量未公开"}
         </strong>
         <span>
@@ -673,6 +697,7 @@ function CampusMapRuntime({
   onSelect,
   transitFeed = EMPTY_TRANSIT_FEED,
   activeRoutes = [],
+  selectedTransitRoute,
   showTransit = false,
   evStations = [],
   showEv = false,
@@ -688,7 +713,11 @@ function CampusMapRuntime({
   const mapRef = useRef<MapLibreMap | null>(map);
   const lastFocusedSelectedIdRef = useRef<number | undefined>(undefined);
   const lastFocusedEvStationIdRef = useRef<string | undefined>(undefined);
+  const lastFocusedTransitRouteRef = useRef<string | undefined>(undefined);
   const didFitPermitPreviewRef = useRef(false);
+  const [transitMarkerScale, setTransitMarkerScale] = useState(() =>
+    transitMarkerScaleForZoom(map?.getZoom() ?? 13.25),
+  );
   const isPermitPreview = variant === "permit-preview";
   const expandedPermitZoneKey = [...expandedPermitZones].sort().join(",");
   const expandedPermitZoneSet = useMemo(
@@ -717,6 +746,16 @@ function CampusMapRuntime({
   const transitRouteData = useMemo(
     () => buildTransitRouteFeatureCollection(activeRoutes, transitGeometryFeed),
     [activeRoutes, transitGeometryFeed],
+  );
+  const selectedTransitRouteData = useMemo(
+    () =>
+      selectedTransitRoute
+        ? buildTransitRouteFeatureCollection(
+            [selectedTransitRoute],
+            transitGeometryFeed,
+          )
+        : undefined,
+    [selectedTransitRoute, transitGeometryFeed],
   );
   const parkingGroupRegion = useMemo(
     () => buildParkingGroupRegion(expandedParkingGroup, locations),
@@ -837,6 +876,70 @@ function CampusMapRuntime({
 
   useEffect(() => {
     const map = mapRef.current;
+    const normalizedSelectedRoute = selectedTransitRoute?.trim().toUpperCase();
+    const selectedRouteIsVisible = activeRoutes.some(
+      (code) => code.trim().toUpperCase() === normalizedSelectedRoute,
+    );
+    if (!normalizedSelectedRoute || !selectedRouteIsVisible || !showTransit) {
+      lastFocusedTransitRouteRef.current = undefined;
+      return;
+    }
+    if (
+      !map ||
+      isPermitPreview ||
+      !selectedTransitRouteData?.features.length
+    ) {
+      return;
+    }
+
+    const bounds = new maplibregl.LngLatBounds();
+    selectedTransitRouteData.features.forEach((feature) =>
+      extendBoundsWithGeometry(bounds, feature.geometry),
+    );
+    if (bounds.isEmpty()) return;
+
+    const focusCompleteRoute = () => {
+      if (lastFocusedTransitRouteRef.current === normalizedSelectedRoute) {
+        return;
+      }
+      const container = map.getContainer();
+      // The mobile map remains mounted while its list view is visible. Defer
+      // fitting until ResizeObserver reveals a real canvas size.
+      if (container.clientWidth < 120 || container.clientHeight < 120) return;
+      lastFocusedTransitRouteRef.current = normalizedSelectedRoute;
+      map.fitBounds(bounds, {
+        padding: { top: 76, right: 68, bottom: 76, left: 68 },
+        maxZoom: 15.4,
+        duration: 700,
+      });
+    };
+
+    focusCompleteRoute();
+    map.on("resize", focusCompleteRoute);
+    return () => {
+      map.off("resize", focusCompleteRoute);
+    };
+  }, [
+    activeRoutes,
+    isPermitPreview,
+    selectedTransitRoute,
+    selectedTransitRouteData,
+    showTransit,
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || isPermitPreview) return;
+    const updateMarkerScale = () =>
+      setTransitMarkerScale(transitMarkerScaleForZoom(map.getZoom()));
+    map.on("zoomend", updateMarkerScale);
+    return () => {
+      map.off("zoomend", updateMarkerScale);
+    };
+  }, [isPermitPreview]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (
       !map ||
       !isPermitPreview ||
@@ -865,6 +968,13 @@ function CampusMapRuntime({
     let active = true;
     const renderRoutes = () => {
       if (!active) return;
+      // Effects can overlap briefly while React swaps a refreshed GeoJSON
+      // collection. Clear the complete layer stack before re-adding it so a
+      // stale source can never make addSource throw.
+      removeLayerIfPresent(map, CABS_DIRECTION_LAYER_ID);
+      removeLayerIfPresent(map, CABS_LINE_LAYER_ID);
+      removeLayerIfPresent(map, CABS_HALO_LAYER_ID);
+      removeSourceIfPresent(map, CABS_SOURCE_ID);
       if (!map.hasImage(CABS_DIRECTION_IMAGE_ID)) {
         map.addImage(CABS_DIRECTION_IMAGE_ID, createDirectionArrowImage());
       }
@@ -881,6 +991,11 @@ function CampusMapRuntime({
           "line-color": "#ffffff",
           "line-opacity": 0.88,
           "line-width": ["interpolate", ["linear"], ["zoom"], 11, 4.5, 16, 8],
+          "line-offset": [
+            "*",
+            ["get", "lineOffset"],
+            ["interpolate", ["linear"], ["zoom"], 11, 1.4, 16, 2.8],
+          ],
         },
       });
       map.addLayer({
@@ -892,6 +1007,11 @@ function CampusMapRuntime({
           "line-color": ["get", "color"],
           "line-opacity": 0.95,
           "line-width": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 16, 5],
+          "line-offset": [
+            "*",
+            ["get", "lineOffset"],
+            ["interpolate", ["linear"], ["zoom"], 11, 1.4, 16, 2.8],
+          ],
         },
       });
       map.addLayer({
@@ -1029,13 +1149,18 @@ function CampusMapRuntime({
               key={`${vehicle.routeCode}:${vehicle.id}`}
               longitude={vehicle.longitude}
               latitude={vehicle.latitude}
-              anchor="center"
+              anchor="bottom"
             >
               <MarkerContent>
                 <button
                   type="button"
                   className={`transit-map-marker${vehicle.delayed ? " is-delayed" : ""}`}
-                  style={{ "--route-color": color } as React.CSSProperties}
+                  style={
+                    {
+                      "--route-color": color,
+                      "--transit-marker-scale": transitMarkerScale,
+                    } as React.CSSProperties
+                  }
                   aria-label={`${vehicle.routeCode} 线路公交 ${info.vehicleLabel}`}
                   aria-haspopup="dialog"
                 >
@@ -1050,12 +1175,12 @@ function CampusMapRuntime({
                         style={{ transform: `rotate(${vehicle.heading}deg)` }}
                         aria-hidden="true"
                       >
-                        ▲
+                        <Icon icon="solar:map-arrow-up-bold" />
                       </i>
                     )}
                 </button>
               </MarkerContent>
-              <MarkerPopup offset={22} maxWidth="340px">
+              <MarkerPopup offset={18} maxWidth="340px">
                 <TransitStationBoard info={info} color={color} />
               </MarkerPopup>
             </MapMarker>
@@ -1122,6 +1247,7 @@ export default function CampusMap(props: CampusMapProps) {
         showZoom
         showCompass
         showLocate={!isPermitPreview}
+        locationBounds={CAMPUS_LOCATION_BOUNDS}
       />
     </MapCNMap>
   );
