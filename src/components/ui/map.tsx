@@ -83,6 +83,12 @@ export const Map = forwardRef<MapRef, MapProps>(function Map(
 
   useEffect(() => {
     if (!containerRef.current) return;
+    // MapLibre 6 resolves its default worker from import.meta.url. Next's
+    // production Webpack build rewrites that value to a file:// URL, leaving
+    // MapLibre with an empty worker URL (and causing it to load `/` as HTML).
+    // The predev/prebuild hook publishes the pinned worker and its shared
+    // module at this stable, same-origin URL.
+    maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     const instance = new maplibregl.Map({
       ...initialOptionsRef.current,
       container: containerRef.current,

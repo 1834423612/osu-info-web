@@ -28,8 +28,10 @@ import {
   type ParkingMapGroupId,
 } from "@/lib/parking-map-groups";
 import {
+  buildTransitRouteEndpointFeatureCollection,
   buildTransitRouteFeatureCollection,
   deriveTransitVehicleMapInfo,
+  type TransitRouteEndpointProperties,
   type TransitVehicleMapInfo,
 } from "@/lib/transit-map";
 import { occupancyLevel } from "@/lib/utils";
@@ -339,6 +341,26 @@ function transitMarkerScaleForZoom(zoom: number) {
   if (zoom < 14) return 0.82;
   if (zoom < 15.5) return 0.92;
   return 1;
+}
+
+function TransitRouteEndpointMarker({
+  endpoint,
+}: {
+  endpoint: TransitRouteEndpointProperties;
+}) {
+  return (
+    <div
+      className={`cabs-route-map-label transit-route-endpoint is-${endpoint.endpoint}`}
+      style={{ "--route-color": endpoint.color } as React.CSSProperties}
+      aria-label={`${endpoint.routeCode} ${endpoint.directionLabel}${endpoint.endpoint === "start" ? "起点" : "终点"}：${endpoint.stopName}`}
+    >
+      <b>{endpoint.endpointLabel}</b>
+      <span>
+        <small>{endpoint.directionLabel}</small>
+        <strong>{endpoint.stopName}</strong>
+      </span>
+    </div>
+  );
 }
 
 function ParkingMarker({
@@ -769,19 +791,39 @@ function CampusMapRuntime({
     }),
     [transitFeed.details, transitFeed.routes],
   );
+  const visibleSelectedTransitRoute = useMemo(() => {
+    const normalizedSelectedRoute = selectedTransitRoute?.trim().toUpperCase();
+    if (!normalizedSelectedRoute) return undefined;
+    return activeRoutes.some(
+      (routeCode) => routeCode.trim().toUpperCase() === normalizedSelectedRoute,
+    )
+      ? normalizedSelectedRoute
+      : undefined;
+  }, [activeRoutes, selectedTransitRoute]);
   const transitRouteData = useMemo(
-    () => buildTransitRouteFeatureCollection(activeRoutes, transitGeometryFeed),
-    [activeRoutes, transitGeometryFeed],
+    () =>
+      buildTransitRouteFeatureCollection(
+        activeRoutes,
+        transitGeometryFeed,
+        visibleSelectedTransitRoute,
+      ),
+    [activeRoutes, transitGeometryFeed, visibleSelectedTransitRoute],
   );
   const selectedTransitRouteData = useMemo(
     () =>
-      selectedTransitRoute
+      visibleSelectedTransitRoute
         ? buildTransitRouteFeatureCollection(
-            [selectedTransitRoute],
+            [visibleSelectedTransitRoute],
             transitGeometryFeed,
+            visibleSelectedTransitRoute,
           )
         : undefined,
-    [selectedTransitRoute, transitGeometryFeed],
+    [transitGeometryFeed, visibleSelectedTransitRoute],
+  );
+  const selectedTransitRouteEndpoints = useMemo(
+    () =>
+      buildTransitRouteEndpointFeatureCollection(selectedTransitRouteData),
+    [selectedTransitRouteData],
   );
   const parkingGroupRegion = useMemo(
     () => buildParkingGroupRegion(expandedParkingGroup, locations),
@@ -1000,87 +1042,194 @@ function CampusMapRuntime({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (process.env.NODE_ENV !== "production") {
+      console.info(
+        "[CABS map] 路线图层状态",
+        JSON.stringify({
+          mapReady: Boolean(map),
+          styleLoaded: map?.isStyleLoaded() ?? false,
+          isPermitPreview,
+          showTransit,
+          activeRoutes,
+          detailRoutes: Object.keys(transitFeed.details),
+          featureCount: transitRouteData.features.length,
+        }),
+      );
+    }
     if (!map || isPermitPreview || !showTransit) return;
     if (transitRouteData.features.length === 0) return;
 
     let active = true;
+    const handleMapError = (event: maplibregl.ErrorEvent) => {
+      console.error("[CABS map] MapLibre 路线图层错误", event.error);
+    };
+    map.on("error", handleMapError);
     const renderRoutes = () => {
       if (!active) return;
-      // Effects can overlap briefly while React swaps a refreshed GeoJSON
-      // collection. Clear the complete layer stack before re-adding it so a
-      // stale source can never make addSource throw.
-      removeLayerIfPresent(map, CABS_DIRECTION_LAYER_ID);
-      removeLayerIfPresent(map, CABS_LINE_LAYER_ID);
-      removeLayerIfPresent(map, CABS_HALO_LAYER_ID);
-      removeSourceIfPresent(map, CABS_SOURCE_ID);
-      if (!map.hasImage(CABS_DIRECTION_IMAGE_ID)) {
-        map.addImage(CABS_DIRECTION_IMAGE_ID, createDirectionArrowImage());
+      try {
+        // Effects can overlap briefly while React swaps a refreshed GeoJSON
+        // collection. Clear the complete layer stack before re-adding it so a
+        // stale source can never make addSource throw.
+        removeLayerIfPresent(map, CABS_DIRECTION_LAYER_ID);
+        removeLayerIfPresent(map, CABS_LINE_LAYER_ID);
+        removeLayerIfPresent(map, CABS_HALO_LAYER_ID);
+        removeSourceIfPresent(map, CABS_SOURCE_ID);
+        if (!map.hasImage(CABS_DIRECTION_IMAGE_ID)) {
+          map.addImage(CABS_DIRECTION_IMAGE_ID, createDirectionArrowImage());
+        }
+        map.addSource(CABS_SOURCE_ID, {
+          type: "geojson",
+          data: transitRouteData,
+        });
+        map.addLayer({
+          id: CABS_HALO_LAYER_ID,
+          type: "line",
+          source: CABS_SOURCE_ID,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#ffffff",
+            "line-opacity": [
+              "case",
+              ["==", ["get", "emphasized"], true],
+              0.98,
+              0.72,
+            ],
+            "line-width": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              11,
+              ["case", ["==", ["get", "emphasized"], true], 12, 7],
+              16,
+              ["case", ["==", ["get", "emphasized"], true], 16, 10],
+            ],
+          },
+        });
+        map.addLayer({
+          id: CABS_LINE_LAYER_ID,
+          type: "line",
+          source: CABS_SOURCE_ID,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": ["get", "displayColor"],
+            "line-opacity": [
+              "case",
+              ["==", ["get", "emphasized"], true],
+              1,
+              0.68,
+            ],
+            "line-width": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              11,
+              ["case", ["==", ["get", "emphasized"], true], 7, 4],
+              16,
+              ["case", ["==", ["get", "emphasized"], true], 10, 6],
+            ],
+          },
+        });
+        map.addLayer({
+          id: CABS_DIRECTION_LAYER_ID,
+          type: "symbol",
+          source: CABS_SOURCE_ID,
+          layout: {
+            "symbol-placement": "line",
+            "symbol-spacing": 105,
+            "icon-image": CABS_DIRECTION_IMAGE_ID,
+            "icon-size": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              11,
+              0.25,
+              16,
+              0.42,
+            ],
+            "icon-rotation-alignment": "map",
+            "icon-pitch-alignment": "map",
+            "icon-keep-upright": false,
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
+          },
+          paint: {
+            "icon-opacity": [
+              "case",
+              ["==", ["get", "emphasized"], true],
+              0.96,
+              0.52,
+            ],
+          },
+        });
+        if (process.env.NODE_ENV !== "production") {
+          const reportRenderedRoutes = () => {
+            const layerIds = map.getStyle().layers.map((layer) => layer.id);
+            console.info(
+              "[CABS map] 路线画布验收",
+              JSON.stringify({
+                zoom: map.getZoom(),
+                sourceFeatures: map.querySourceFeatures(CABS_SOURCE_ID).length,
+                renderedLineFeatures: map.queryRenderedFeatures({
+                  layers: [CABS_LINE_LAYER_ID],
+                }).length,
+                rasterIndex: layerIds.indexOf("osm"),
+                haloIndex: layerIds.indexOf(CABS_HALO_LAYER_ID),
+                lineIndex: layerIds.indexOf(CABS_LINE_LAYER_ID),
+                arrowIndex: layerIds.indexOf(CABS_DIRECTION_LAYER_ID),
+                lineVisibility: map.getLayoutProperty(
+                  CABS_LINE_LAYER_ID,
+                  "visibility",
+                ),
+                lineWidth: map.getPaintProperty(
+                  CABS_LINE_LAYER_ID,
+                  "line-width",
+                ),
+              }),
+            );
+          };
+          console.info(
+            "[CABS map] 路线图层已加入",
+            JSON.stringify({
+              source: Boolean(map.getSource(CABS_SOURCE_ID)),
+              halo: Boolean(map.getLayer(CABS_HALO_LAYER_ID)),
+              line: Boolean(map.getLayer(CABS_LINE_LAYER_ID)),
+              arrows: Boolean(map.getLayer(CABS_DIRECTION_LAYER_ID)),
+              layerOrder: map
+                .getStyle()
+                .layers.map((layer) => layer.id)
+                .filter((id) => id.startsWith("campus-cabs")),
+            }),
+          );
+          map.once("idle", reportRenderedRoutes);
+          window.setTimeout(reportRenderedRoutes, 1_000);
+          map.triggerRepaint();
+        }
+      } catch (reason) {
+        console.error("[CABS map] 添加路线图层失败", reason);
       }
-      map.addSource(CABS_SOURCE_ID, {
-        type: "geojson",
-        data: transitRouteData,
-      });
-      map.addLayer({
-        id: CABS_HALO_LAYER_ID,
-        type: "line",
-        source: CABS_SOURCE_ID,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#ffffff",
-          "line-opacity": 0.88,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 4.5, 16, 8],
-          "line-offset": [
-            "*",
-            ["get", "lineOffset"],
-            ["interpolate", ["linear"], ["zoom"], 11, 1.4, 16, 2.8],
-          ],
-        },
-      });
-      map.addLayer({
-        id: CABS_LINE_LAYER_ID,
-        type: "line",
-        source: CABS_SOURCE_ID,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": ["get", "color"],
-          "line-opacity": 0.95,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 2.5, 16, 5],
-          "line-offset": [
-            "*",
-            ["get", "lineOffset"],
-            ["interpolate", ["linear"], ["zoom"], 11, 1.4, 16, 2.8],
-          ],
-        },
-      });
-      map.addLayer({
-        id: CABS_DIRECTION_LAYER_ID,
-        type: "symbol",
-        source: CABS_SOURCE_ID,
-        layout: {
-          "symbol-placement": "line",
-          "symbol-spacing": 105,
-          "icon-image": CABS_DIRECTION_IMAGE_ID,
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.25, 16, 0.42],
-          "icon-rotation-alignment": "map",
-          "icon-pitch-alignment": "map",
-          "icon-keep-upright": false,
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-        },
-      });
     };
 
-    if (map.isStyleLoaded()) renderRoutes();
-    else map.once("load", renderRoutes);
+    // CampusMapRuntime mounts after the initial map `load` event. Source
+    // updates can briefly make `isStyleLoaded()` false, but waiting for that
+    // already-fired one-shot event leaves the route layer absent forever.
+    renderRoutes();
+    map.on("style.load", renderRoutes);
     return () => {
       active = false;
-      map.off("load", renderRoutes);
+      map.off("style.load", renderRoutes);
+      map.off("error", handleMapError);
       removeLayerIfPresent(map, CABS_DIRECTION_LAYER_ID);
       removeLayerIfPresent(map, CABS_LINE_LAYER_ID);
       removeLayerIfPresent(map, CABS_HALO_LAYER_ID);
       removeSourceIfPresent(map, CABS_SOURCE_ID);
     };
-  }, [isPermitPreview, showTransit, transitRouteData]);
+  }, [
+    activeRoutes,
+    isPermitPreview,
+    showTransit,
+    transitFeed.details,
+    transitRouteData,
+  ]);
 
   const visibleTransitVehicles = transitFeed.vehicles.filter(
     (vehicle) =>
@@ -1193,6 +1342,27 @@ function CampusMapRuntime({
           </MarkerPopup>
         </MapMarker>
       ))}
+      {!isPermitPreview &&
+        showTransit &&
+        selectedTransitRouteEndpoints.features.map((feature) => {
+          const [longitude, latitude] = feature.geometry.coordinates;
+          const endpoint = feature.properties;
+          const horizontalOffset = endpoint.patternIndex % 2 === 0 ? -18 : 18;
+          const verticalOffset = endpoint.endpoint === "start" ? -5 : 7;
+          return (
+            <MapMarker
+              key={String(feature.id)}
+              longitude={longitude}
+              latitude={latitude}
+              anchor="bottom"
+              offset={[horizontalOffset, verticalOffset]}
+            >
+              <MarkerContent>
+                <TransitRouteEndpointMarker endpoint={endpoint} />
+              </MarkerContent>
+            </MapMarker>
+          );
+        })}
       {!isPermitPreview &&
         showTransit &&
         visibleTransitVehicles.map((vehicle) => {

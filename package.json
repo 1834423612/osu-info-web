@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "maplibre:sync-worker": "node scripts/sync-maplibre-worker.mjs",
+    "predev": "npm run maplibre:sync-worker",
     "dev": "next dev",
+    "prebuild": "npm run maplibre:sync-worker",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",

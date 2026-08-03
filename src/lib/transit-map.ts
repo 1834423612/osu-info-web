@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, LineString } from "geojson";
+import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 
 import { decodePolyline } from "@/lib/polyline";
 import type {
@@ -22,16 +22,35 @@ export type TransitRouteLineProperties = {
   patternId: string;
   patternIndex: number;
   patternCount: number;
-  lineOffset: number;
   color: string;
   darkColor: string;
+  displayColor: string;
+  emphasized: boolean;
   direction: string;
   directionLabel: string;
+  startStopName: string;
+  endStopName: string;
 };
 
 export type TransitRouteFeatureCollection = FeatureCollection<
   LineString,
   TransitRouteLineProperties
+>;
+
+export type TransitRouteEndpointProperties = {
+  routeCode: string;
+  patternId: string;
+  patternIndex: number;
+  endpoint: "start" | "end";
+  endpointLabel: "起" | "终";
+  stopName: string;
+  directionLabel: string;
+  color: string;
+};
+
+export type TransitRouteEndpointFeatureCollection = FeatureCollection<
+  Point,
+  TransitRouteEndpointProperties
 >;
 
 export type TransitNearbyStop = TransitStop & {
@@ -168,9 +187,11 @@ export function transitPatternDirectionLabel(
 export function buildTransitRouteFeatureCollection(
   activeRoutes: readonly string[],
   feed: TransitFeed,
+  selectedRoute?: string,
 ): TransitRouteFeatureCollection {
   const features: Feature<LineString, TransitRouteLineProperties>[] = [];
   const seenCodes = new Set<string>();
+  const normalizedSelectedRoute = normalizeCode(selectedRoute);
 
   activeRoutes.forEach((requestedCode) => {
     const normalizedCode = normalizeCode(requestedCode);
@@ -189,11 +210,20 @@ export function buildTransitRouteFeatureCollection(
       const coordinates = decodeRenderableLine(pattern.encodedPolyline);
       if (!coordinates) return;
 
-      // Opposing directions commonly share the same road. A small, symmetric
-      // offset keeps both complete paths legible instead of letting the last
-      // rendered pattern conceal the other one.
-      const lineOffset =
-        (patternIndex - (detail.patterns.length - 1) / 2) * 2;
+      const patternStops = estimateTransitPatternStopSequence(
+        pattern,
+        detail.stops,
+      );
+      const directionLabel = transitPatternDirectionLabel(
+        pattern,
+        detail.stops,
+      );
+      const startStopName = compactTransitStopName(
+        patternStops.at(0)?.name ?? "线路起点",
+      );
+      const endStopName = compactTransitStopName(
+        patternStops.at(-1)?.name ?? "线路终点",
+      );
 
       features.push({
         type: "Feature",
@@ -204,11 +234,16 @@ export function buildTransitRouteFeatureCollection(
           patternId: pattern.id,
           patternIndex,
           patternCount: detail.patterns.length,
-          lineOffset,
           color,
           darkColor,
+          displayColor: patternIndex % 2 === 0 ? color : darkColor,
+          emphasized:
+            Boolean(normalizedSelectedRoute) &&
+            normalizeCode(routeCode) === normalizedSelectedRoute,
           direction: pattern.direction?.trim() ?? "",
-          directionLabel: transitPatternDirectionLabel(pattern, detail.stops),
+          directionLabel,
+          startStopName,
+          endStopName,
         },
         geometry: {
           type: "LineString",
@@ -216,6 +251,60 @@ export function buildTransitRouteFeatureCollection(
         },
       });
     });
+  });
+
+  return { type: "FeatureCollection", features };
+}
+
+/**
+ * Mark the two ends of every official pattern for the selected route. These
+ * points are derived from the complete encoded polyline, never from a
+ * vehicle's remaining prediction list, so a route stays understandable even
+ * when there are no buses online.
+ */
+export function buildTransitRouteEndpointFeatureCollection(
+  routeData?: TransitRouteFeatureCollection,
+): TransitRouteEndpointFeatureCollection {
+  const features: Feature<Point, TransitRouteEndpointProperties>[] = [];
+
+  routeData?.features.forEach((feature) => {
+    const coordinates = feature.geometry.coordinates;
+    const start = coordinates.at(0);
+    const end = coordinates.at(-1);
+    if (!start || !end) return;
+
+    const shared = {
+      routeCode: feature.properties.routeCode,
+      patternId: feature.properties.patternId,
+      patternIndex: feature.properties.patternIndex,
+      directionLabel: feature.properties.directionLabel,
+      color: feature.properties.displayColor,
+    };
+
+    features.push(
+      {
+        type: "Feature",
+        id: `${feature.properties.routeCode}:${feature.properties.patternId}:start`,
+        properties: {
+          ...shared,
+          endpoint: "start",
+          endpointLabel: "起",
+          stopName: feature.properties.startStopName,
+        },
+        geometry: { type: "Point", coordinates: start },
+      },
+      {
+        type: "Feature",
+        id: `${feature.properties.routeCode}:${feature.properties.patternId}:end`,
+        properties: {
+          ...shared,
+          endpoint: "end",
+          endpointLabel: "终",
+          stopName: feature.properties.endStopName,
+        },
+        geometry: { type: "Point", coordinates: end },
+      },
+    );
   });
 
   return { type: "FeatureCollection", features };

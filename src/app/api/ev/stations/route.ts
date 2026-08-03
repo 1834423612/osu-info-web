@@ -26,6 +26,9 @@ const TESLA_CACHE_MS = 15 * 60 * 1000;
 const UPSTREAM_TIMEOUT_MS = 18_000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 90;
+const DEFAULT_TESLA_BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
 
 type CacheEntry<T> = {
   value: T;
@@ -109,8 +112,8 @@ function describeStatus(service: EvUpstreamService, status: number) {
   if (service === "nlr" && status === 429) {
     return "NLR/AFDC 已触发上游速率限制（HTTP 429）";
   }
-  if (service.startsWith("tesla") && status === 403) {
-    return "Tesla Akamai 拒绝了当前服务器出口（HTTP 403）";
+  if (service.startsWith("tesla") && (status === 403 || status === 429)) {
+    return `Tesla Akamai 边缘验证拒绝或限制了当前服务器/浏览器中继出口（HTTP ${status}）`;
   }
   return `${service} 上游返回 HTTP ${status}`;
 }
@@ -144,6 +147,40 @@ function trustedTeslaProxyUrl(upstream: URL | string) {
   }
 }
 
+function configuredTeslaBrowserUserAgent() {
+  const configured = process.env.TESLA_BROWSER_USER_AGENT?.trim();
+  return configured && !/[\r\n]/.test(configured)
+    ? configured
+    : DEFAULT_TESLA_BROWSER_USER_AGENT;
+}
+
+function teslaBrowserRequestHeaders(stationId: string) {
+  const userAgent = configuredTeslaBrowserUserAgent();
+  const chromeVersion = userAgent.match(/Chrome\/(\d+)/)?.[1];
+  const platform = userAgent.includes("Windows")
+    ? '"Windows"'
+    : userAgent.includes("Macintosh")
+      ? '"macOS"'
+      : '"Linux"';
+
+  return {
+    Referer: KNOWN_TESLA_LOCATIONS[stationId].siteUrl,
+    "User-Agent": userAgent,
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": platform,
+    ...(chromeVersion
+      ? {
+          "Sec-CH-UA":
+            `"Not_A Brand";v="99", "Chromium";v="${chromeVersion}", ` +
+            `"Google Chrome";v="${chromeVersion}"`,
+        }
+      : {}),
+  };
+}
+
 async function fetchJson(
   url: URL | string,
   service: EvUpstreamService,
@@ -160,17 +197,12 @@ async function fetchJson(
       headers: {
         Accept: "application/json, text/plain, */*",
         "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent":
-          "Mozilla/5.0 (compatible; BuckeyeParking/1.0; +https://ttm.osu.edu/)",
         ...(stationId
-          ? {
-              Referer: KNOWN_TESLA_LOCATIONS[stationId].siteUrl,
-              Origin: "https://www.tesla.com",
-              "Sec-Fetch-Dest": "empty",
-              "Sec-Fetch-Mode": "cors",
-              "Sec-Fetch-Site": "same-origin",
-            }
-          : {}),
+          ? teslaBrowserRequestHeaders(stationId)
+          : {
+              "User-Agent":
+                "BuckeyeParking/1.0 (+https://ttm.osu.edu/)",
+            }),
         ...(trustedProxy && process.env.TESLA_FETCH_PROXY_TOKEN
           ? {
               Authorization: `Bearer ${process.env.TESLA_FETCH_PROXY_TOKEN}`,
@@ -192,6 +224,12 @@ async function fetchJson(
           durationMs,
           stationId,
           cache: "miss",
+          ...(service.startsWith("tesla") &&
+          (response.status === 403 || response.status === 429)
+            ? { failureKind: "edge-challenge" as const }
+            : service === "nlr" && response.status === 429
+              ? { failureKind: "rate-limit" as const }
+              : {}),
           message: trustedProxy
             ? `配置的 Tesla 受信任出口失败：${describeStatus(service, response.status)}`
             : describeStatus(service, response.status),
@@ -218,6 +256,9 @@ async function fetchJson(
         },
       };
     } catch {
+      const isTeslaChallengeHtml =
+        service.startsWith("tesla") &&
+        response.headers.get("content-type")?.includes("text/html");
       return {
         ok: false,
         diagnostic: {
@@ -229,7 +270,12 @@ async function fetchJson(
           durationMs,
           stationId,
           cache: "miss",
-          message: `${service} 返回的内容不是有效 JSON`,
+          failureKind: isTeslaChallengeHtml
+            ? "edge-challenge"
+            : "invalid-response",
+          message: isTeslaChallengeHtml
+            ? "Tesla Akamai 边缘验证返回了 HTML 挑战页，而不是官方详情 JSON"
+            : `${service} 返回的内容不是有效 JSON`,
         },
       };
     }
@@ -244,6 +290,7 @@ async function fetchJson(
         durationMs: Date.now() - startedAt,
         stationId,
         cache: "miss",
+        failureKind: "network",
         message: sanitizedFailureMessage(reason),
       },
     };
@@ -585,6 +632,13 @@ export async function GET(request: NextRequest) {
       const snapshot = rawSnapshot
         ? { ...rawSnapshot, id: stationId }
         : undefined;
+      const failureMessages = [
+        ...new Set(
+          result.diagnostics
+            .map((diagnostic) => diagnostic.message)
+            .filter((message): message is string => Boolean(message)),
+        ),
+      ];
       return json(
         {
           stations: snapshot ? [snapshot] : [],
@@ -592,9 +646,7 @@ export async function GET(request: NextRequest) {
           sourceUpdatedAt: snapshot?.updatedAt,
           isFallback: true,
           warning: [
-            ...result.diagnostics
-              .map((diagnostic) => diagnostic.message)
-              .filter(Boolean),
+            ...failureMessages,
             snapshot
               ? "服务器已返回随应用发布的 Tesla 官方接口快照；不是当前价格或空闲状态。"
               : "该站没有可验证的 Tesla 官方详情快照，保留 NLR 基础资料。",

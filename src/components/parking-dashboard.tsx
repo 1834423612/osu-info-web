@@ -865,7 +865,19 @@ export function ParkingDashboard() {
                     update({ mapTransitVisible: true });
                   }
                 }}
-                onToggleRoute={transit.toggleRoute}
+                onToggleRoute={(code) => {
+                  const showing = !transit.activeRoutes.includes(code);
+                  transit.toggleRoute(code);
+                  if (showing) {
+                    setSelectedTransitRoute(code);
+                    if (!preferences.mapTransitVisible) {
+                      update({ mapTransitVisible: true });
+                    }
+                    if (window.innerWidth <= 820) setMobileView("map");
+                  } else if (selectedTransitRoute === code) {
+                    setSelectedTransitRoute(undefined);
+                  }
+                }}
               />
             ) : (
               <div className="ev-panel-scroll">
@@ -1048,7 +1060,14 @@ export function ParkingDashboard() {
                       mapTransitVisible: !preferences.mapTransitVisible,
                     })
                   }
-                  onToggleRoute={transit.toggleRoute}
+                  onToggleRoute={(code) => {
+                    const showing = !transit.activeRoutes.includes(code);
+                    transit.toggleRoute(code);
+                    if (showing) setSelectedTransitRoute(code);
+                    else if (selectedTransitRoute === code) {
+                      setSelectedTransitRoute(undefined);
+                    }
+                  }}
                 />
               </div>
             </div>

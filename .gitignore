@@ -7,6 +7,10 @@
 /.next/
 /out/
 
+# generated from the pinned maplibre-gl package by the predev/prebuild hook
+/public/maplibre/maplibre-gl-worker.mjs
+/public/maplibre/maplibre-gl-shared.mjs
+
 # production
 /build
 

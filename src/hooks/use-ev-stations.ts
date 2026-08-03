@@ -81,6 +81,12 @@ const UPSTREAM_SERVICES = new Set([
   "tesla-location",
 ]);
 const UPSTREAM_TRANSPORTS = new Set(["browser", "server", "snapshot"]);
+const UPSTREAM_FAILURE_KINDS = new Set([
+  "edge-challenge",
+  "rate-limit",
+  "invalid-response",
+  "network",
+]);
 const REQUEST_ORIGINS = new Set(["browser", "server", "mixed", "snapshot"]);
 
 let refreshInFlight: Promise<EvStationsResponse> | undefined;
@@ -148,6 +154,9 @@ function isUpstreamStatus(value: unknown): value is EvUpstreamStatus {
     typeof value.ok === "boolean" &&
     typeof value.attemptedAt === "string" &&
     (value.status === undefined || typeof value.status === "number") &&
+    (value.failureKind === undefined ||
+      (typeof value.failureKind === "string" &&
+        UPSTREAM_FAILURE_KINDS.has(value.failureKind))) &&
     (value.message === undefined || typeof value.message === "string")
   );
 }
@@ -269,8 +278,8 @@ function diagnosticMessage(
   if (service === "nlr" && status === 429) {
     return "NLR/AFDC 浏览器请求触发速率限制（HTTP 429）";
   }
-  if (service.startsWith("tesla") && status === 403) {
-    return "Tesla Akamai/CORS 拒绝浏览器请求（HTTP 403）";
+  if (service.startsWith("tesla") && (status === 403 || status === 429)) {
+    return `Tesla Akamai 边缘验证拒绝或限制了浏览器直连（HTTP ${status}）`;
   }
   if (status !== undefined) return `${service} 浏览器 GET 返回 HTTP ${status}`;
   return `${service} 浏览器 GET 无法完成（${reason || "网络、DNS 或 CORS"}）`;
@@ -323,6 +332,12 @@ async function browserJson(
       const diagnostic: EvUpstreamStatus = {
         ...base,
         ok: false,
+        ...(service.startsWith("tesla") &&
+        (response.status === 403 || response.status === 429)
+          ? { failureKind: "edge-challenge" as const }
+          : service === "nlr" && response.status === 429
+            ? { failureKind: "rate-limit" as const }
+            : {}),
         message: diagnosticMessage(service, response.status),
       };
       logDiagnostic(diagnostic);
@@ -333,10 +348,18 @@ async function browserJson(
       const diagnostic: EvUpstreamStatus = { ...base, ok: true };
       return { ok: true, payload, diagnostic };
     } catch {
+      const isTeslaChallengeHtml =
+        service.startsWith("tesla") &&
+        response.headers.get("content-type")?.includes("text/html");
       const diagnostic: EvUpstreamStatus = {
         ...base,
         ok: false,
-        message: `${service} 浏览器 GET 返回的内容不是有效 JSON`,
+        failureKind: isTeslaChallengeHtml
+          ? "edge-challenge"
+          : "invalid-response",
+        message: isTeslaChallengeHtml
+          ? "Tesla Akamai 边缘验证返回了 HTML 挑战页，而不是官方详情 JSON"
+          : `${service} 浏览器 GET 返回的内容不是有效 JSON`,
       };
       logDiagnostic(diagnostic);
       return { ok: false, diagnostic };
@@ -351,6 +374,7 @@ async function browserJson(
       durationMs: Date.now() - startedAt,
       stationId,
       cache: "miss",
+      failureKind: "network",
       message: diagnosticMessage(service, undefined, detail),
     };
     logDiagnostic(diagnostic);

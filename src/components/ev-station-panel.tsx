@@ -99,7 +99,12 @@ function sourceHealth(
   if (failure) {
     return {
       state: "failure" as const,
-      label: failure.status ? `HTTP ${failure.status}` : "请求失败",
+      label:
+        failure.failureKind === "edge-challenge"
+          ? "Akamai 拒绝"
+          : failure.status
+            ? `HTTP ${failure.status}`
+            : "请求失败",
       detail: failure.message,
     };
   }

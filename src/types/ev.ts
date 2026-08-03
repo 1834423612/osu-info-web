@@ -33,6 +33,11 @@ export type EvUpstreamService =
   | "tesla-location";
 
 export type EvUpstreamTransport = "browser" | "server" | "snapshot";
+export type EvUpstreamFailureKind =
+  | "edge-challenge"
+  | "rate-limit"
+  | "invalid-response"
+  | "network";
 
 /**
  * A sanitized status for one upstream request. This is intentionally safe to
@@ -48,6 +53,7 @@ export type EvUpstreamStatus = {
   stationId?: string;
   durationMs?: number;
   cache?: "miss" | "fresh" | "stale";
+  failureKind?: EvUpstreamFailureKind;
   message?: string;
   requestId?: string;
 };
