@@ -19,6 +19,7 @@ import type { ParkingAccessPresentation } from "@/components/parking-card";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
 import type { TransitFeed } from "@/types/transit";
+import type { CampusImpactCollection } from "@/types/campus-gis";
 import {
   MapLayerSettingsDock,
   type MapLayerSettingItem,
@@ -63,16 +64,25 @@ export type CampusParkingMapProps = {
   transitFeed?: TransitFeed;
   activeRoutes?: string[];
   selectedTransitRoute?: string;
+  selectedTransitFocusRequest?: number;
   showTransit?: boolean;
   evStations?: EvStation[];
   showEv?: boolean;
   selectedEvStationId?: string;
+  selectedEvFocusRequest?: number;
   onSelectEvStation?: (id: string) => void;
   parkingAccessById?: Readonly<Record<number, ParkingAccessPresentation>>;
+  campusImpacts?: CampusImpactCollection;
+  campusImpactsLoading?: boolean;
+  campusImpactsError?: string;
   permitLayer: PermitMapLayer;
   mapLayerVisibility?: Partial<MapLayerVisibility>;
   onMapLayerVisibilityChange?: (
     layer: MapLayerSettingKey,
+    visible: boolean,
+  ) => void;
+  onMapLayerVisibilityBatchChange?: (
+    layers: readonly MapLayerSettingKey[],
     visible: boolean,
   ) => void;
   className?: string;
@@ -144,6 +154,7 @@ export function CampusParkingMap({
   permitLayer,
   mapLayerVisibility,
   onMapLayerVisibilityChange,
+  onMapLayerVisibilityBatchChange,
   className,
   ...mapProps
 }: CampusParkingMapProps) {
@@ -235,6 +246,10 @@ export function CampusParkingMap({
     "transitEndpoints",
     mapProps.showTransit ?? false,
   );
+  const constructionImpactsVisible = layerVisible(
+    "constructionImpacts",
+    false,
+  );
   const transitLayersVisible =
     transitVehiclesVisible || transitRoutesVisible || transitEndpointsVisible;
   const setLayerVisible = useCallback(
@@ -271,6 +286,7 @@ export function CampusParkingMap({
         icon: "solar:ticket-bold-duotone",
         tone: "scarlet",
         visible: permitAreasVisible,
+        disabled: !permitLayer.permitCode,
       },
       {
         id: "parkingLocations",
@@ -310,11 +326,30 @@ export function CampusParkingMap({
         tone: "violet",
         visible: transitEndpointsVisible,
       },
+      {
+        id: "constructionImpacts",
+        group: "campus",
+        label: "施工与通行影响",
+        detail: mapProps.campusImpactsLoading
+          ? "正在读取 OSU 官方 GIS"
+          : mapProps.campusImpactsError
+            ? "读取失败 · 关闭后重试"
+            : !constructionImpactsVisible &&
+                !mapProps.campusImpacts?.features.length
+              ? "开启后读取 OSU 官方影响"
+              : `${mapProps.campusImpacts?.features.length ?? 0} 个当前/即将发生`,
+        icon: "solar:danger-triangle-bold-duotone",
+        tone: "amber",
+        visible: constructionImpactsVisible,
+      },
     ],
     [
       activeZones.length,
       chargingStationsVisible,
       mapProps.activeRoutes?.length,
+      mapProps.campusImpacts?.features.length,
+      mapProps.campusImpactsError,
+      mapProps.campusImpactsLoading,
       mapProps.evStations?.length,
       mapProps.selectedTransitRoute,
       mapProps.transitFeed?.routes.length,
@@ -326,6 +361,7 @@ export function CampusParkingMap({
       transitEndpointsVisible,
       transitRoutesVisible,
       transitVehiclesVisible,
+      constructionImpactsVisible,
     ],
   );
 
@@ -340,6 +376,34 @@ export function CampusParkingMap({
       };
     });
   }, [layerKey]);
+
+  const setAllMapLayersVisible = useCallback(
+    (visible: boolean) => {
+      const layers = mapLayerItems
+        .filter((item) => !item.disabled)
+        .map((item) => item.id);
+      setLocalLayerVisibility((current) =>
+        layers.reduce<Partial<MapLayerVisibility>>(
+          (next, layer) =>
+            mapLayerVisibility?.[layer] === undefined
+              ? { ...next, [layer]: visible }
+              : next,
+          current,
+        ),
+      );
+      if (onMapLayerVisibilityBatchChange) {
+        onMapLayerVisibilityBatchChange(layers, visible);
+        return;
+      }
+      layers.forEach((layer) => onMapLayerVisibilityChange?.(layer, visible));
+    },
+    [
+      mapLayerItems,
+      mapLayerVisibility,
+      onMapLayerVisibilityBatchChange,
+      onMapLayerVisibilityChange,
+    ],
+  );
 
   return (
     <div
@@ -360,6 +424,8 @@ export function CampusParkingMap({
         showTransitRoutes={transitRoutesVisible}
         showTransitEndpoints={transitEndpointsVisible}
         showEv={chargingStationsVisible}
+        campusImpacts={mapProps.campusImpacts}
+        showCampusImpacts={constructionImpactsVisible}
         expandedPermitZones={expandedZones}
         availablePermitZones={activeZones}
         expandedParkingGroup={expandedParkingGroup}
@@ -370,6 +436,7 @@ export function CampusParkingMap({
         <MapLayerSettingsDock
           items={mapLayerItems}
           onChange={setLayerVisible}
+          onChangeAll={setAllMapLayersVisible}
         >
                 {parkingGroups.length > 0 && (
                   <section className="parking-layer-section">

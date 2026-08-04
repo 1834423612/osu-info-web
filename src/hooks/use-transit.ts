@@ -14,7 +14,20 @@ import type {
 const POLL_INTERVAL = 15_000;
 const DETAIL_REFRESH_INTERVAL = 10 * 60_000;
 const DETAIL_RETRY_DELAYS = [4_000, 12_000] as const;
-const CORE_CABS_ROUTE_CODES = new Set(["BE", "CC", "CLS", "ER", "MC", "NWC"]);
+// Keep the live catalog scoped to routes referenced by parking metadata, while
+// allowing seasonal/medical routes to appear whenever OSU publishes them.
+const SUPPORTED_CABS_ROUTE_CODES = new Set([
+  "BE",
+  "CC",
+  "CLS",
+  "ER",
+  "MC",
+  "NWC",
+  "ACK",
+  "JPS",
+  "MM",
+  "WMC",
+]);
 
 type RouteResponse = {
   routes?: TransitRoute[];
@@ -75,13 +88,12 @@ export function useTransit(mapVisible: boolean) {
         return (await response.json()) as RouteResponse;
       })
       .then((payload) => {
-        // The shared OSU feed also publishes medical-center shuttle services
-        // such as WMC. This browser's CABS tab intentionally tracks the six
-        // core campus routes requested by the user.
+        // The shared feed can contain unrelated services. Keep current routes
+        // used by this app, but do not fabricate buttons for unpublished ones.
         const nextRoutes = Array.isArray(payload.routes)
           ? payload.routes.filter((route) =>
               typeof route?.code === "string" &&
-              CORE_CABS_ROUTE_CODES.has(route.code.trim().toUpperCase()),
+              SUPPORTED_CABS_ROUTE_CODES.has(route.code.trim().toUpperCase()),
             )
           : [];
         setRoutes(nextRoutes);

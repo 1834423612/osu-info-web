@@ -3,6 +3,11 @@ import {
   type SurfaceZone,
 } from "@/data/permits";
 import {
+  getParkingFacilityDetails,
+  type FacilityAccessWindow,
+  type ParkingFacilityDetails,
+} from "@/data/parking-facilities";
+import {
   resolveParkingAccess,
   type ParkingAccessContext,
   type ParkingAccessDecision,
@@ -16,146 +21,37 @@ type SurfaceAggregate = {
   link: string;
 };
 
-const SURFACE_AGGREGATES: Readonly<
-  Partial<Record<number, SurfaceAggregate>>
-> = {
-  3002: {
-    zones: ["WA", "WB"],
-    visitorPark: "ParkMobile paid hourly",
-    link: "https://osu.campusparc.com/find-parking/carmack-lot-23/",
-  },
-  3003: {
-    zones: ["WB"],
-    visitorPark: "ParkMobile paid hourly",
-    link: "https://osu.campusparc.com/find-parking/carmack-lot-4/",
-  },
-  3005: {
-    zones: ["CX"],
-    visitorPark: "ParkMobile paid hourly",
-    link: "https://osu.campusparc.com/find-parking/buckeye-lot/",
-  },
-};
+function facilityAccessText(
+  visitor: FacilityAccessWindow,
+  permit: FacilityAccessWindow,
+): Pick<ParkingAccessTarget, "permit" | "usage"> {
+  const permitText: Readonly<Record<FacilityAccessWindow, string>> = {
+    "all-times": "Permit- All Times",
+    "off-peak": "Permit- Off-Peak",
+    none: "No Permit Access",
+  };
+  const visitorText: Readonly<Record<FacilityAccessWindow, string>> = {
+    "all-times": "Visitor- All Times",
+    "off-peak": "Visitor- Off-Peak",
+    none: "No Visitor Access",
+  };
+  return {
+    permit: `Garage: ${permitText[permit]}; ${visitorText[visitor]}`,
+    usage: `${permitText[permit]}; ${visitorText[visitor]}`.toUpperCase(),
+  };
+}
 
-const GARAGE_ACCESS: Readonly<
-  Partial<Record<number, Omit<ParkingAccessTarget, "kind">>>
-> = {
-  294: {
-    name: "12th Avenue Garage",
-    permit: "Garage: Permit- Off-Peak; Visitor- All Times",
-    usage: "PERMIT OFF PEAK; VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/12th-avenue-garage/",
-  },
-  63: {
-    name: "9th Avenue East Garage",
-    permit: "Garage: Permit- All Times; Visitor- Off-Peak",
-    usage: "PERMIT ALL TIMES; VISITOR OFF-PEAK",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/9th-avenue-east-garage/",
-  },
-  107: {
-    name: "9th Avenue West Garage",
-    permit: "Garage: Permit- All Times; No Visitor Access",
-    usage: "PERMIT ONLY-NO VISITOR",
-    link: "https://osu.campusparc.com/find-parking/9th-avenue-west-garage/",
-  },
-  158: {
-    name: "SAFEAUTO Garage",
-    permit: "Garage: Visitor- All Times; No Permit Access",
-    usage: "VISITOR ALL TIMES; NO PERMIT ACCESS",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/safeauto-garage/",
-  },
-  347: {
-    name: "Wexner Medical Center Garage",
-    permit: "Garage: Permit- Off-Peak; Visitor- All Times",
-    usage: "PERMIT OFF PEAK; VISITOR ALL TIMES",
-    visitorPark: "Patient and visitor parking",
-    link: "https://osu.campusparc.com/find-parking/wexner-medical-center-garage/",
-  },
-  348: {
-    name: "Old Cannon Garage",
-    permit: "Garage: Permit- All Times; No Visitor Access",
-    usage: "PERMIT ONLY-NO VISITOR",
-    link: "https://osu.campusparc.com/find-parking/old-cannon-garage/",
-  },
-  40: {
-    name: "Neil Avenue Garage",
-    permit: "Garage: Permit- All Times; Visitor- Off-Peak",
-    usage: "PERMIT ALL TIMES; VISITOR OFF-PEAK",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/neil-avenue-garage/",
-  },
-  3000: {
-    name: "11th Avenue Garage",
-    permit: "Garage: Permit- Off-Peak; Visitor- All Times",
-    usage: "PERMIT OFF PEAK; VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/11th-avenue-garage/",
-  },
-  137: {
-    name: "Ohio Union North Garage",
-    permit: "Garage: Permit- All Times; Visitor- Off-Peak",
-    usage: "PERMIT ALL TIMES; VISITOR OFF-PEAK",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/ohio-union-north-garage/",
-  },
-  181: {
-    name: "Ohio Union South Garage",
-    permit: "Garage: Permit- Off-Peak; Visitor- All Times",
-    usage: "LIMITED PERMIT; VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/ohio-union-south-garage/",
-  },
-  346: {
-    name: "Gateway Garage",
-    permit: "Garage: Visitor and Permit- All Times",
-    usage: "PERMIT AND VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/gateway-garage/",
-  },
-  93: {
-    name: "Tuttle Park Place Garage",
-    permit: "Garage: Visitor and Permit- All Times",
-    usage: "PERMIT AND VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/tuttle-garage/",
-  },
-  70: {
-    name: "Northwest Garage",
-    permit: "Garage: Permit- All Times; No Visitor Access",
-    usage: "PERMIT ONLY-NO VISITOR",
-    link: "https://osu.campusparc.com/find-parking/northwest-garage/",
-  },
-  3: {
-    name: "Arps Garage",
-    permit: "Garage: Visitor and Permit- All Times",
-    usage: "PERMIT AND VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/arps-garage/",
-  },
-  255: {
-    name: "Lane Avenue Garage",
-    permit: "Garage: Visitor and Permit- All Times",
-    usage: "PERMIT AND VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/lane-avenue-garage/",
-  },
-  239: {
-    name: "West Lane Avenue Garage",
-    permit: "Garage: Visitor and Permit- All Times",
-    usage: "PERMIT AND VISITOR ALL TIMES",
-    visitorPark: "Visitor parking",
-    link: "https://osu.campusparc.com/find-parking/west-lane-avenue-garage/",
-  },
-  1: {
-    name: "James Outpatient Care Garage",
-    permit: "Garage: Visitor- All Times; No Permit Access",
-    usage: "VISITOR ALL TIMES; NO PERMIT ACCESS",
-    visitorPark: "Patient and visitor parking",
-    link: "https://osu.campusparc.com/find-parking/james-outpatient-care-garage/",
-  },
-};
+function facilityGarageTarget(
+  facility: ParkingFacilityDetails,
+): Omit<ParkingAccessTarget, "kind"> {
+  return {
+    name: facility.officialName,
+    ...facilityAccessText(facility.access.visitor, facility.access.permit),
+    visitorPark:
+      facility.access.visitor === "none" ? undefined : "Visitor parking",
+    link: facility.officialUrl,
+  };
+}
 
 const statusPriority: Readonly<Record<ParkingAccessDecision["status"], number>> = {
   included: 0,
@@ -296,17 +192,24 @@ export function resolveParkingLocationAccess(
   location: ParkingLocation,
   context: ParkingAccessContext,
 ): ParkingAccessDecision {
-  const aggregate = SURFACE_AGGREGATES[location.GarageId];
-  if (aggregate) {
+  const facility = getParkingFacilityDetails(location.GarageId);
+  if (facility?.surfaceZones?.length) {
+    const aggregate: SurfaceAggregate = {
+      zones: facility.surfaceZones,
+      visitorPark: "ParkMobile paid hourly",
+      link: facility.officialUrl,
+    };
     return withVisitorPrice(
       resolveSurfaceAggregate(location, aggregate, context),
       location,
     );
   }
 
-  const official = GARAGE_ACCESS[location.GarageId];
-  if (official) {
-    const target: ParkingAccessTarget = { ...official, kind: "garage" };
+  if (facility) {
+    const target: ParkingAccessTarget = {
+      ...facilityGarageTarget(facility),
+      kind: "garage",
+    };
     return withVisitorPrice(
       addTargetSource(resolveParkingAccess(target, context), target),
       location,

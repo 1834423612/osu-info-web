@@ -36,6 +36,7 @@ import {
   PARKING_LOCATIONS,
 } from "@/data/parking-locations";
 import { useEvStations } from "@/hooks/use-ev-stations";
+import { useCampusImpacts } from "@/hooks/use-campus-impacts";
 import { useLocalPreferences } from "@/hooks/use-local-preferences";
 import { useParkingStatus } from "@/hooks/use-parking-status";
 import { usePermitAreas } from "@/hooks/use-permit-areas";
@@ -52,6 +53,7 @@ import {
   formatNumber,
   haversineMeters,
 } from "@/lib/utils";
+import type { EvStation } from "@/types/ev";
 import type {
   ParkingFilters,
   ParkingLocation,
@@ -97,11 +99,18 @@ export function ParkingDashboard() {
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("parking");
   const [selectedTransitRoute, setSelectedTransitRoute] = useState<string>();
   const [selectedEvStationId, setSelectedEvStationId] = useState<string>();
+  const [selectedTransitFocusRequest, setSelectedTransitFocusRequest] =
+    useState(0);
+  const [selectedEvFocusRequest, setSelectedEvFocusRequest] = useState(0);
+  const [evStationDetailOpen, setEvStationDetailOpen] = useState(false);
   const [transitPanelExpanded, setTransitPanelExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const transit = useTransit(preferences.mapTransitVisible);
   const ev = useEvStations();
+  const campusImpacts = useCampusImpacts(
+    preferences.mapConstructionImpactsVisible,
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -348,6 +357,21 @@ export function ParkingDashboard() {
       .at(0);
   }, [ev.stations, selectedLocation]);
 
+  const nearestEvStation = useMemo(() => {
+    if (!ev.stations.length) return undefined;
+    if (!selectedLocation) return ev.stations.at(0);
+    const station = [...ev.stations]
+      .sort(
+        (a, b) =>
+          haversineMeters(selectedLocation, a) -
+          haversineMeters(selectedLocation, b),
+      )
+      .at(0);
+    return station && haversineMeters(selectedLocation, station) <= 600
+      ? station
+      : undefined;
+  }, [ev.stations, selectedLocation]);
+
   const advancedFilterCount =
     Number(filters.kind !== "all") +
     Number(filters.access !== "all") +
@@ -373,6 +397,7 @@ export function ParkingDashboard() {
   }, []);
 
   const showMapView = useCallback(() => {
+    setEvStationDetailOpen(false);
     setMobileView("map");
     if (window.innerWidth > 820) return;
     window.requestAnimationFrame(() => {
@@ -382,6 +407,42 @@ export function ParkingDashboard() {
       });
     });
   }, []);
+
+  const locateEvStationFromParking = useCallback(
+    (station: EvStation) => {
+      setSelectedEvStationId(station.id);
+      setSelectedEvFocusRequest((current) => current + 1);
+      setSidebarTab("charging");
+      if (!preferences.evMode) update({ evMode: true });
+      if (window.innerWidth <= 820) {
+        setSelectedId(undefined);
+        setEvStationDetailOpen(false);
+        showMapView();
+      }
+    },
+    [preferences.evMode, showMapView, update],
+  );
+
+  const locateTransitRouteFromParking = useCallback(
+    (routeCode: string) => {
+      setSelectedTransitRoute(routeCode);
+      setSelectedTransitFocusRequest((current) => current + 1);
+      setSidebarTab("transit");
+      if (!transit.activeRoutes.includes(routeCode)) {
+        transit.toggleRoute(routeCode);
+      }
+      update({
+        mapTransitVisible: true,
+        mapTransitRoutesVisible: true,
+        mapTransitEndpointsVisible: true,
+      });
+      if (window.innerWidth <= 820) {
+        setSelectedId(undefined);
+        showMapView();
+      }
+    },
+    [showMapView, transit, update],
+  );
 
   const handlePermitSave = useCallback(
     (code: string, identity: UserParkingIdentity) => {
@@ -442,6 +503,10 @@ export function ParkingDashboard() {
         update({ mapParkingLocationsVisible: visible });
         return;
       }
+      if (layer === "constructionImpacts") {
+        update({ mapConstructionImpactsVisible: visible });
+        return;
+      }
 
       const nextTransitLayers = {
         vehicles:
@@ -472,6 +537,72 @@ export function ParkingDashboard() {
     [
       permitAreasError,
       permitSummary,
+      preferences.mapTransitEndpointsVisible,
+      preferences.mapTransitRoutesVisible,
+      preferences.mapTransitVehiclesVisible,
+      reloadPermitAreas,
+      update,
+    ],
+  );
+
+  const handleMapLayerVisibilityBatchChange = useCallback(
+    (layers: readonly MapLayerSettingKey[], visible: boolean) => {
+      const selectedLayers = new Set(layers);
+      const nextTransitVehicles = selectedLayers.has("transitVehicles")
+        ? visible
+        : preferences.mapTransitVehiclesVisible;
+      const nextTransitRoutes = selectedLayers.has("transitRoutes")
+        ? visible
+        : preferences.mapTransitRoutesVisible;
+      const nextTransitEndpoints = selectedLayers.has("transitEndpoints")
+        ? visible
+        : preferences.mapTransitEndpointsVisible;
+      const touchesTransit =
+        selectedLayers.has("transitVehicles") ||
+        selectedLayers.has("transitRoutes") ||
+        selectedLayers.has("transitEndpoints");
+
+      if (
+        visible &&
+        selectedLayers.has("permitAreas") &&
+        permitAreasError
+      ) {
+        reloadPermitAreas();
+      }
+      update({
+        ...(selectedLayers.has("chargingStations")
+          ? { evMode: visible }
+          : {}),
+        ...(selectedLayers.has("permitAreas")
+          ? { mapPermitAreasVisible: visible }
+          : {}),
+        ...(selectedLayers.has("parkingLocations")
+          ? { mapParkingLocationsVisible: visible }
+          : {}),
+        ...(selectedLayers.has("constructionImpacts")
+          ? { mapConstructionImpactsVisible: visible }
+          : {}),
+        ...(selectedLayers.has("transitVehicles")
+          ? { mapTransitVehiclesVisible: visible }
+          : {}),
+        ...(selectedLayers.has("transitRoutes")
+          ? { mapTransitRoutesVisible: visible }
+          : {}),
+        ...(selectedLayers.has("transitEndpoints")
+          ? { mapTransitEndpointsVisible: visible }
+          : {}),
+        ...(touchesTransit
+          ? {
+              mapTransitVisible:
+                nextTransitVehicles ||
+                nextTransitRoutes ||
+                nextTransitEndpoints,
+            }
+          : {}),
+      });
+    },
+    [
+      permitAreasError,
       preferences.mapTransitEndpointsVisible,
       preferences.mapTransitRoutesVisible,
       preferences.mapTransitVehiclesVisible,
@@ -670,12 +801,16 @@ export function ParkingDashboard() {
               access={parkingAccessById[selectedLocation.GarageId]}
               permitName={permitLabel}
               permitMessage={selectedPermitMessage}
+              nearestEvStation={nearestEvStation}
               nearestFastCharger={nearestFastCharger}
+              transitRoutes={transit.feed.routes}
               escapeEnabled={!permitOpen && !accessGuideOpen}
               onClose={() => setSelectedId(undefined)}
               onToggleFavorite={() =>
                 toggleFavorite(selectedLocation.GarageId)
               }
+              onLocateEvStation={locateEvStationFromParking}
+              onLocateTransitRoute={locateTransitRouteFromParking}
             />
           ) : (
             <div
@@ -690,7 +825,10 @@ export function ParkingDashboard() {
                 role="tab"
                 className={sidebarTab === "parking" ? "is-active" : ""}
                 aria-selected={sidebarTab === "parking"}
-                onClick={() => setSidebarTab("parking")}
+                onClick={() => {
+                  setSidebarTab("parking");
+                  setEvStationDetailOpen(false);
+                }}
               >
                 <Icon icon="solar:garage-bold-duotone" />
                 <span>
@@ -703,7 +841,10 @@ export function ParkingDashboard() {
                 role="tab"
                 className={sidebarTab === "transit" ? "is-active" : ""}
                 aria-selected={sidebarTab === "transit"}
-                onClick={() => setSidebarTab("transit")}
+                onClick={() => {
+                  setSidebarTab("transit");
+                  setEvStationDetailOpen(false);
+                }}
               >
                 <Icon icon="solar:bus-bold-duotone" />
                 <span>
@@ -950,6 +1091,7 @@ export function ParkingDashboard() {
                     transit.toggleRoute(code);
                   }
                   if (opening) {
+                    setSelectedTransitFocusRequest((current) => current + 1);
                     update({
                       mapTransitVisible: true,
                       mapTransitRoutesVisible: true,
@@ -962,6 +1104,7 @@ export function ParkingDashboard() {
                   transit.toggleRoute(code);
                   if (showing) {
                     setSelectedTransitRoute(code);
+                    setSelectedTransitFocusRequest((current) => current + 1);
                     update({
                       mapTransitVisible: true,
                       mapTransitRoutesVisible: true,
@@ -983,10 +1126,16 @@ export function ParkingDashboard() {
                   updatedAt={ev.updatedAt}
                   upstreams={ev.upstreams}
                   selectedId={selectedEvStationId}
+                  detailOpen={
+                    evStationDetailOpen && !permitOpen && !accessGuideOpen
+                  }
                   onSelectStation={(station) => {
                     setSelectedEvStationId(station.id);
+                    setSelectedEvFocusRequest((current) => current + 1);
+                    setEvStationDetailOpen(true);
                     if (!preferences.evMode) update({ evMode: true });
                   }}
+                  onCloseDetails={() => setEvStationDetailOpen(false)}
                   mapVisible={preferences.evMode}
                   onToggleMap={() => {
                     const visible = !preferences.evMode;
@@ -1064,12 +1213,20 @@ export function ParkingDashboard() {
                 evStations={ev.stations}
                 showEv={preferences.evMode}
                 selectedEvStationId={selectedEvStationId}
+                selectedEvFocusRequest={selectedEvFocusRequest}
+                selectedTransitFocusRequest={selectedTransitFocusRequest}
                 onSelectEvStation={(stationId) => {
+                  setSelectedId(undefined);
                   setSelectedEvStationId(stationId);
+                  setSelectedEvFocusRequest((current) => current + 1);
+                  setEvStationDetailOpen(true);
                   setSidebarTab("charging");
                   if (window.innerWidth <= 820) setMobileView("list");
                 }}
                 parkingAccessById={parkingAccessById}
+                campusImpacts={campusImpacts.data}
+                campusImpactsLoading={campusImpacts.loading}
+                campusImpactsError={campusImpacts.error}
                 mapLayerVisibility={{
                   chargingStations: preferences.evMode,
                   permitAreas: showPermitAreas,
@@ -1083,8 +1240,13 @@ export function ParkingDashboard() {
                   transitEndpoints:
                     preferences.mapTransitVisible &&
                     preferences.mapTransitEndpointsVisible,
+                  constructionImpacts:
+                    preferences.mapConstructionImpactsVisible,
                 }}
                 onMapLayerVisibilityChange={handleMapLayerVisibilityChange}
+                onMapLayerVisibilityBatchChange={
+                  handleMapLayerVisibilityBatchChange
+                }
                 permitLayer={{
                   areas: permitAreas.data,
                   visible: showPermitAreas,
@@ -1173,6 +1335,7 @@ export function ParkingDashboard() {
                     transit.toggleRoute(code);
                     if (showing) {
                       setSelectedTransitRoute(code);
+                      setSelectedTransitFocusRequest((current) => current + 1);
                       update({
                         mapTransitVisible: true,
                         mapTransitRoutesVisible: true,

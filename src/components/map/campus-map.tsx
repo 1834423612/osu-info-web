@@ -37,6 +37,10 @@ import { occupancyLevel } from "@/lib/utils";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
 import type { TransitFeed } from "@/types/transit";
+import type {
+  CampusImpactCollection,
+  CampusImpactProperties,
+} from "@/types/campus-gis";
 
 const CAMPUS_CENTER: [number, number] = [-83.0226, 40.0035];
 // Main campus, medical center, west campus and Buckeye Lots, with a small GPS
@@ -66,11 +70,25 @@ const PERMIT_AREA_PREVIEW_LINE_PAINT: LineLayerSpecification["paint"] = {
   ...PERMIT_AREA_LINE_PAINT,
   "line-width": 2,
 };
+const CAMPUS_IMPACT_FILL_PAINT: FillLayerSpecification["paint"] = {
+  "fill-color": ["get", "impactColor"],
+  "fill-opacity": 0.13,
+};
+const CAMPUS_IMPACT_LINE_PAINT: LineLayerSpecification["paint"] = {
+  "line-color": ["get", "impactColor"],
+  "line-opacity": 0.9,
+  "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.4, 17, 2.4],
+  "line-dasharray": [2, 1.4],
+};
 
 const EMPTY_TRANSIT_FEED: TransitFeed = {
   routes: [],
   details: {},
   vehicles: [],
+};
+const EMPTY_CAMPUS_IMPACTS: CampusImpactCollection = {
+  type: "FeatureCollection",
+  features: [],
 };
 
 export type CampusMapVariant = "default" | "permit-preview";
@@ -84,6 +102,7 @@ export type CampusMapProps = {
   transitFeed?: TransitFeed;
   activeRoutes?: string[];
   selectedTransitRoute?: string;
+  selectedTransitFocusRequest?: number;
   showTransit?: boolean;
   showTransitVehicles?: boolean;
   showTransitRoutes?: boolean;
@@ -91,8 +110,11 @@ export type CampusMapProps = {
   evStations?: EvStation[];
   showEv?: boolean;
   selectedEvStationId?: string;
+  selectedEvFocusRequest?: number;
   onSelectEvStation?: (id: string) => void;
   parkingAccessById?: Readonly<Record<number, ParkingAccessPresentation>>;
+  campusImpacts?: CampusImpactCollection;
+  showCampusImpacts?: boolean;
   permitAreas: FeatureCollection;
   showPermitAreas?: boolean;
   expandedPermitZones?: string[];
@@ -718,6 +740,77 @@ function EvStationPopup({ station }: { station: EvStation }) {
   );
 }
 
+type CampusImpactMarkerInfo = {
+  properties: CampusImpactProperties;
+  coordinates: [number, number];
+};
+
+function campusImpactMarkers(
+  impacts: CampusImpactCollection,
+): CampusImpactMarkerInfo[] {
+  return impacts.features.flatMap((feature) => {
+    const bounds = new maplibregl.LngLatBounds();
+    extendBoundsWithGeometry(bounds, feature.geometry);
+    if (bounds.isEmpty()) return [];
+    const center = bounds.getCenter();
+    return [
+      {
+        properties: feature.properties,
+        coordinates: [center.lng, center.lat] as [number, number],
+      },
+    ];
+  });
+}
+
+function campusImpactDate(value?: string) {
+  if (!value) return "未公布";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未公布";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function CampusImpactPopup({
+  impact,
+}: {
+  impact: CampusImpactProperties;
+}) {
+  const affected = [
+    impact.affectsParking ? "停车" : undefined,
+    impact.affectsVehicles ? "车辆" : undefined,
+    impact.affectsPedestrians ? "步行" : undefined,
+    impact.affectsCyclists ? "骑行" : undefined,
+  ].filter(Boolean);
+
+  return (
+    <div
+      className="map-info-popup map-info-popup--impact"
+      style={{ "--impact-color": impact.impactColor } as React.CSSProperties}
+    >
+      <small>
+        {impact.isEvent ? "活动影响" : "OSU 官方施工影响"}
+      </small>
+      <strong>{impact.name}</strong>
+      <span className="map-info-popup__date-range">
+        {campusImpactDate(impact.startDate)} – {campusImpactDate(impact.endDate)}
+      </span>
+      {affected.length > 0 && (
+        <div className="map-info-popup__impact-tags">
+          {affected.map((label) => <span key={label}>{label}</span>)}
+        </div>
+      )}
+      {impact.summary && <p>{impact.summary}</p>}
+      <a href={impact.officialMapUrl} target="_blank" rel="noreferrer">
+        在 OSU 官方地图核对 ↗
+      </a>
+    </div>
+  );
+}
+
 function CampusMapRuntime({
   variant = "default",
   locations = [],
@@ -733,8 +826,12 @@ function CampusMapRuntime({
   evStations = [],
   showEv = false,
   selectedEvStationId,
+  selectedEvFocusRequest = 0,
   onSelectEvStation,
+  selectedTransitFocusRequest = 0,
   parkingAccessById,
+  campusImpacts = EMPTY_CAMPUS_IMPACTS,
+  showCampusImpacts = false,
   permitAreas,
   showPermitAreas = true,
   expandedPermitZones = [],
@@ -928,17 +1025,18 @@ function CampusMapRuntime({
       lastFocusedEvStationIdRef.current = undefined;
       return;
     }
+    const focusKey = `${selectedEvStationId}:${selectedEvFocusRequest}`;
     if (
       !map ||
       !showEv ||
       isPermitPreview ||
       selectedEvLongitude === undefined ||
       selectedEvLatitude === undefined ||
-      lastFocusedEvStationIdRef.current === selectedEvStationId
+      lastFocusedEvStationIdRef.current === focusKey
     ) {
       return;
     }
-    lastFocusedEvStationIdRef.current = selectedEvStationId;
+    lastFocusedEvStationIdRef.current = focusKey;
     map.easeTo({
       center: [selectedEvLongitude, selectedEvLatitude],
       zoom: Math.max(map.getZoom(), 14.6),
@@ -949,6 +1047,7 @@ function CampusMapRuntime({
     isPermitPreview,
     selectedEvLatitude,
     selectedEvLongitude,
+    selectedEvFocusRequest,
     selectedEvStationId,
     showEv,
   ]);
@@ -956,6 +1055,7 @@ function CampusMapRuntime({
   useEffect(() => {
     const map = mapRef.current;
     const normalizedSelectedRoute = selectedTransitRoute?.trim().toUpperCase();
+    const focusKey = `${normalizedSelectedRoute ?? ""}:${selectedTransitFocusRequest}`;
     const selectedRouteIsVisible = activeRoutes.some(
       (code) => code.trim().toUpperCase() === normalizedSelectedRoute,
     );
@@ -983,14 +1083,14 @@ function CampusMapRuntime({
     if (bounds.isEmpty()) return;
 
     const focusCompleteRoute = () => {
-      if (lastFocusedTransitRouteRef.current === normalizedSelectedRoute) {
+      if (lastFocusedTransitRouteRef.current === focusKey) {
         return;
       }
       const container = map.getContainer();
       // The mobile map remains mounted while its list view is visible. Defer
       // fitting until ResizeObserver reveals a real canvas size.
       if (container.clientWidth < 120 || container.clientHeight < 120) return;
-      lastFocusedTransitRouteRef.current = normalizedSelectedRoute;
+      lastFocusedTransitRouteRef.current = focusKey;
       map.fitBounds(bounds, {
         padding: { top: 76, right: 68, bottom: 76, left: 68 },
         maxZoom: 15.4,
@@ -1007,6 +1107,7 @@ function CampusMapRuntime({
     activeRoutes,
     isPermitPreview,
     selectedTransitRoute,
+    selectedTransitFocusRequest,
     selectedTransitRouteData,
     showTransit,
     showTransitEndpoints,
@@ -1293,9 +1394,51 @@ function CampusMapRuntime({
       showPermitAreas,
     ],
   );
+  const visibleCampusImpactMarkers = useMemo(
+    () =>
+      !isPermitPreview && showCampusImpacts
+        ? campusImpactMarkers(campusImpacts)
+        : [],
+    [campusImpacts, isPermitPreview, showCampusImpacts],
+  );
 
   return (
     <>
+      {!isPermitPreview &&
+        showCampusImpacts &&
+        campusImpacts.features.length > 0 && (
+          <MapGeoJSON
+            id="osu-campus-impacts"
+            data={campusImpacts}
+            fillPaint={CAMPUS_IMPACT_FILL_PAINT}
+            linePaint={CAMPUS_IMPACT_LINE_PAINT}
+          />
+        )}
+      {visibleCampusImpactMarkers.map(({ properties, coordinates }) => (
+        <MapMarker
+          key={properties.id}
+          longitude={coordinates[0]}
+          latitude={coordinates[1]}
+          anchor="center"
+        >
+          <MarkerContent>
+            <button
+              type="button"
+              className="campus-impact-map-marker"
+              style={
+                { "--impact-color": properties.impactColor } as React.CSSProperties
+              }
+              aria-label={`${properties.name}，点击查看 OSU 官方施工影响`}
+              aria-haspopup="dialog"
+            >
+              <Icon icon="solar:danger-triangle-bold" />
+            </button>
+          </MarkerContent>
+          <MarkerPopup offset={14} maxWidth="330px">
+            <CampusImpactPopup impact={properties} />
+          </MarkerPopup>
+        </MapMarker>
+      ))}
       {permitAreaData.features.length > 0 && (
         <MapGeoJSON
           id="campus-permit-areas"

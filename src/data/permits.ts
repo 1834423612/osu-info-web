@@ -1,3 +1,8 @@
+import {
+  PARKING_FACILITY_DATA_SOURCES,
+  PARKING_RATE_PROFILES,
+} from "@/data/parking-facilities";
+
 /**
  * CampusParc permit facts and general time rules.
  *
@@ -5,7 +10,9 @@
  * knowing the sign at a particular space. Posted signs, barricades, event
  * plans, construction notices and instructions from CampusParc always win.
  *
- * Sources were checked on 2026-07-30. Prices are for permit year 2026–27.
+ * Permit-specific sources were checked on 2026-07-30. Prices are for permit
+ * year 2026–27; shared facility and visitor-rate facts carry their own later
+ * verification date in `parking-facilities.ts`.
  */
 
 export const CAMPUS_TIME_ZONE = "America/New_York" as const;
@@ -20,8 +27,7 @@ export const PERMIT_YEAR_2026_27 = {
 export const OFFICIAL_PARKING_URLS = {
   browsePermits:
     "https://osu.campusparc.com/get-a-permit/permit-comparison-toolbrowse-permits/",
-  prices2026_27:
-    "https://osu.campusparc.com/media/nrwpruj1/py26-27-rate-table.pdf",
+  prices2026_27: PARKING_FACILITY_DATA_SOURCES.rateTable,
   surfaceAccess:
     "https://osu.campusparc.com/media/ytziyyvm/surfacelotaccesstablepy26250520.pdf",
   garageAccess:
@@ -31,12 +37,9 @@ export const OFFICIAL_PARKING_URLS = {
   parkingDefinitions: "https://osu.campusparc.com/parking-definitions/",
   eventParking:
     "https://osu.campusparc.com/find-parking/ohio-state-event-parking/",
-  longTermLateNight:
-    "https://osu.campusparc.com/find-parking/long-term-and-late-night-parking/",
-  visitorRates:
-    "https://osu.campusparc.com/find-parking/academic-visitor-parking/",
-  parkingPolicies:
-    "https://osu.campusparc.com/resources/parking-policies/",
+  longTermLateNight: PARKING_FACILITY_DATA_SOURCES.lateNight,
+  visitorRates: PARKING_FACILITY_DATA_SOURCES.visitorParking,
+  parkingPolicies: PARKING_FACILITY_DATA_SOURCES.parkingPolicies,
   parkingNews: "https://osu.campusparc.com/about-us/news/",
   holidayCalendar:
     "https://hr.osu.edu/wp-content/uploads/policy620-future-holiday-calendars.pdf",
@@ -45,26 +48,34 @@ export const OFFICIAL_PARKING_URLS = {
 } as const;
 
 export const VISITOR_PARKING_RATES_2026_27 = {
-  verifiedOn: "2026-08-01",
-  sourceUrl: OFFICIAL_PARKING_URLS.visitorRates,
-  surfaceHourlyUsd: 3,
+  verifiedOn: PARKING_FACILITY_DATA_SOURCES.verifiedOn,
+  sourceUrl: PARKING_FACILITY_DATA_SOURCES.visitorParking,
+  rateTableUrl: PARKING_FACILITY_DATA_SOURCES.rateTable,
+  surfaceHourlyUsd: PARKING_RATE_PROFILES["surface-hourly"].hourlyUsd,
   academicGarage: {
-    halfHourUsd: 3,
-    oneHourUsd: 6,
-    twoHoursUsd: 10,
-    threeHoursUsd: 14,
-    fourHoursUsd: 18,
-    dailyMaximumUsd: 20,
-    offPeakMaximumUsd: 12,
+    halfHourUsd: PARKING_RATE_PROFILES["academic-garage"].halfHourUsd,
+    oneHourUsd: PARKING_RATE_PROFILES["academic-garage"].oneHourUsd,
+    twoHoursUsd: PARKING_RATE_PROFILES["academic-garage"].twoHoursUsd,
+    threeHoursUsd: PARKING_RATE_PROFILES["academic-garage"].threeHoursUsd,
+    fourHoursUsd: PARKING_RATE_PROFILES["academic-garage"].fourHoursUsd,
+    dailyMaximumUsd:
+      PARKING_RATE_PROFILES["academic-garage"].dailyMaximumUsd,
+    offPeakMaximumUsd:
+      PARKING_RATE_PROFILES["academic-garage"].offPeakMaximumUsd,
   },
   medicalCenterGarage: {
-    halfHourUsd: 2.25,
-    oneHourUsd: 4.75,
-    twoHoursUsd: 8,
-    threeHoursUsd: 11,
-    fourHoursUsd: 14.25,
-    dailyMaximumUsd: 15.75,
-    offPeakMaximumUsd: 9.5,
+    halfHourUsd:
+      PARKING_RATE_PROFILES["medical-center-garage"].halfHourUsd,
+    oneHourUsd: PARKING_RATE_PROFILES["medical-center-garage"].oneHourUsd,
+    twoHoursUsd: PARKING_RATE_PROFILES["medical-center-garage"].twoHoursUsd,
+    threeHoursUsd:
+      PARKING_RATE_PROFILES["medical-center-garage"].threeHoursUsd,
+    fourHoursUsd:
+      PARKING_RATE_PROFILES["medical-center-garage"].fourHoursUsd,
+    dailyMaximumUsd:
+      PARKING_RATE_PROFILES["medical-center-garage"].dailyMaximumUsd,
+    offPeakMaximumUsd:
+      PARKING_RATE_PROFILES["medical-center-garage"].offPeakMaximumUsd,
   },
   noteZh:
     "车库费率每日午夜重置；off-peak 最高价仅适用于工作日 6 p.m.–午夜及周末。活动、医院验证和现场入口价格可能不同。",
@@ -301,7 +312,7 @@ const noOvernight = {
   mode: "not-included",
   surface: "none",
   detailZh:
-    "不含工作日 3–5 a.m. 夜间存放；须在 3 a.m. 前离校，或仅使用官方 commuter late-night 指定区临停。周末连续非高峰规则另计。",
+    "不含停车证覆盖的工作日 3–5 a.m. 夜间存放。若必须继续停车，可按规定使用 commuter late-night 指定区，或改用 24/7 访客车库/明确支持按小时付款的地面位并另行付费；周末连续非高峰规则另计。",
 } as const;
 
 const employeeSurfaceOvernight = (surface: SurfaceScope, detailZh: string) =>
@@ -1372,7 +1383,7 @@ export function getPermitPlanningNotice(
           tone: "warning",
           titleZh: "当前证件不含工作日夜间存放",
           detailZh:
-            "3–5 a.m. 仅可使用官方 late-night 指定区临停，或改用明确支持 overnight 的按小时位置/访客车库。",
+            "证件图层显示无通用准停区是正常结果。仍可按规定使用 commuter late-night 指定区，或进入 24/7 访客车库、明确支持按小时付款的地面位并支付访客费用。",
         }
       : {
           tone: "night",

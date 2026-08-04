@@ -21,6 +21,7 @@ const defaults: UserPreferences = {
   mapTransitVehiclesVisible: true,
   mapTransitRoutesVisible: true,
   mapTransitEndpointsVisible: true,
+  mapConstructionImpactsVisible: false,
   dismissedWelcome: false,
 };
 
@@ -69,6 +70,10 @@ export function useLocalPreferences() {
             typeof saved?.mapTransitEndpointsVisible === "boolean"
               ? saved.mapTransitEndpointsVisible
               : mapTransitVisible,
+          mapConstructionImpactsVisible:
+            typeof saved?.mapConstructionImpactsVisible === "boolean"
+              ? saved.mapConstructionImpactsVisible
+              : defaults.mapConstructionImpactsVisible,
           parkingIdentity: isUserParkingIdentity(saved?.parkingIdentity)
             ? saved.parkingIdentity
             : inferIdentityForPermitSelection(permitCode),

@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -11,17 +11,25 @@ export type MapLayerSettingKey =
   | "parkingLocations"
   | "transitVehicles"
   | "transitRoutes"
-  | "transitEndpoints";
+  | "transitEndpoints"
+  | "constructionImpacts";
 
 export type MapLayerVisibility = Record<MapLayerSettingKey, boolean>;
 
 export type MapLayerSettingItem = {
   id: MapLayerSettingKey;
-  group: "parking" | "transit";
+  group: "parking" | "transit" | "campus";
   label: string;
   detail: string;
   icon: string;
-  tone: "green" | "scarlet" | "blue" | "orange" | "violet" | "navy";
+  tone:
+    | "green"
+    | "scarlet"
+    | "blue"
+    | "orange"
+    | "violet"
+    | "navy"
+    | "amber";
   visible: boolean;
   disabled?: boolean;
 };
@@ -29,13 +37,16 @@ export type MapLayerSettingItem = {
 export function MapLayerSettingsDock({
   items,
   onChange,
+  onChangeAll,
   children,
 }: {
   items: readonly MapLayerSettingItem[];
   onChange: (id: MapLayerSettingKey, visible: boolean) => void;
+  onChangeAll?: (visible: boolean) => void;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const visibleCount = items.filter((item) => item.visible).length;
   const groupedItems = useMemo(
     () => [
@@ -49,6 +60,11 @@ export function MapLayerSettingsDock({
         label: "CABS 公交",
         items: items.filter((item) => item.group === "transit"),
       },
+      {
+        id: "campus" as const,
+        label: "校园动态",
+        items: items.filter((item) => item.group === "campus"),
+      },
     ],
     [items],
   );
@@ -56,7 +72,12 @@ export function MapLayerSettingsDock({
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      window.requestAnimationFrame(() => {
+        toggleRef.current?.focus({ preventScroll: true });
+      });
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
@@ -72,6 +93,7 @@ export function MapLayerSettingsDock({
       aria-label="地图显示设置"
     >
       <button
+        ref={toggleRef}
         type="button"
         className="parking-layer-dock__toggle"
         onClick={() => setOpen((current) => !current)}
@@ -88,6 +110,29 @@ export function MapLayerSettingsDock({
               ? "按需精简地图内容"
               : `${visibleCount} / ${items.length} 个图层`}
           </strong>
+          {!open && (
+            <span
+              className="map-layer-settings__summary-icons"
+              role="img"
+              aria-label={items
+                .map((item) => `${item.label}${item.visible ? "已显示" : "已隐藏"}`)
+                .join("，")}
+            >
+              {items.map((item) => (
+                <i
+                  key={item.id}
+                  aria-hidden="true"
+                  className={cn(
+                    `is-${item.tone}`,
+                    item.visible ? "is-active" : "is-inactive",
+                  )}
+                  title={`${item.label}：${item.visible ? "已显示" : "已隐藏"}`}
+                >
+                  <Icon icon={item.icon} />
+                </i>
+              ))}
+            </span>
+          )}
         </span>
         <Icon
           icon={
@@ -108,6 +153,36 @@ export function MapLayerSettingsDock({
               <strong>只保留现在需要的信息</strong>
               <small>关闭图层不会清除筛选或线路选择。</small>
             </p>
+            <div className="map-layer-settings__quick-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onChangeAll) onChangeAll(true);
+                  else {
+                    items
+                      .filter((item) => !item.disabled && !item.visible)
+                      .forEach((item) => onChange(item.id, true));
+                  }
+                }}
+                disabled={items.every((item) => item.disabled || item.visible)}
+              >
+                全开
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onChangeAll) onChangeAll(false);
+                  else {
+                    items
+                      .filter((item) => !item.disabled && item.visible)
+                      .forEach((item) => onChange(item.id, false));
+                  }
+                }}
+                disabled={items.every((item) => item.disabled || !item.visible)}
+              >
+                清空
+              </button>
+            </div>
           </div>
           {groupedItems.map((group) => (
             <section

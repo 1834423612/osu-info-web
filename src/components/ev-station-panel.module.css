@@ -1,4 +1,5 @@
 .panel {
+  position: relative;
   display: flex;
   height: 100%;
   min-width: 0;
@@ -420,9 +421,13 @@
     box-shadow 150ms ease;
 }
 
-.expandedCard {
+.selectedCard {
   border-color: #fda4af;
   box-shadow: 0 8px 24px rgb(16 24 40 / 8%);
+}
+
+.selectedCard .stationSummary {
+  background: #fff8f8;
 }
 
 .stationSummary {
@@ -439,6 +444,11 @@
   text-align: left;
   font: inherit;
   cursor: pointer;
+}
+
+.stationSummary:focus-visible {
+  outline: 3px solid rgb(253 164 175 / 35%);
+  outline-offset: -3px;
 }
 
 .networkIcon {
@@ -522,11 +532,201 @@
   width: 17px;
   height: 17px;
   color: #98a2b3;
-  transition: transform 150ms ease;
 }
 
-.stationSummary[aria-expanded="true"] .chevron {
-  transform: rotate(180deg);
+.detailModalLayer {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  overflow: hidden;
+  padding: 14px;
+  background: rgb(16 24 40 / 48%);
+  backdrop-filter: blur(3px);
+}
+
+.detailModal {
+  display: flex;
+  width: min(100%, 620px);
+  max-height: calc(100% - 18px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 20px;
+  outline: 0;
+  background: #fff;
+  box-shadow: 0 28px 80px rgb(16 24 40 / 32%);
+  animation: detail-modal-enter 180ms ease-out;
+}
+
+.detailModalHeader {
+  display: grid;
+  flex: none;
+  grid-template-columns: 46px minmax(0, 1fr) auto 34px;
+  align-items: center;
+  gap: 11px;
+  border-bottom: 1px solid #eaecf0;
+  padding: 14px;
+  background:
+    radial-gradient(circle at 90% 0, rgb(254 228 226 / 78%), transparent 130px),
+    #fff;
+}
+
+.detailModalHeader > .networkIcon {
+  width: 46px;
+  height: 46px;
+}
+
+.detailModalTitle {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detailModalTitle small,
+.detailModalTitle strong,
+.detailModalTitle em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailModalTitle small {
+  color: #b42318;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.detailModalTitle strong {
+  color: #101828;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.detailModalTitle em {
+  color: #667085;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.detailModalCapacity {
+  display: flex;
+  min-width: 54px;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.detailModalCapacity strong {
+  color: #101828;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.detailModalCapacity small {
+  margin-top: 4px;
+  color: #98a2b3;
+  font-size: 8px;
+}
+
+.detailModalClose {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 88%);
+  color: #667085;
+  cursor: pointer;
+}
+
+.detailModalClose:hover {
+  border-color: #fda29b;
+  color: #b42318;
+}
+
+.detailModalClose:focus-visible {
+  outline: 3px solid rgb(253 164 175 / 35%);
+  outline-offset: 2px;
+}
+
+.detailModalClose svg {
+  width: 19px;
+  height: 19px;
+}
+
+.detailModalBody {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  touch-action: pan-y;
+}
+
+.detailModalStatus {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.detailModalStatus span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #f9fafb;
+  padding: 8px 9px;
+  color: #475467;
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailModalStatus .operationalStatus {
+  border-color: #abefc6;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.detailModalStatus .unconfirmedStatus {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.detailModalStatus svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.detailModalBody .stationDetails {
+  border-top: 0;
+  padding: 12px 0 0;
+  background: transparent;
+}
+
+@keyframes detail-modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .stationDetails {
@@ -558,6 +758,7 @@
   min-width: 0;
   margin: 0;
   color: #344054;
+  overflow-wrap: anywhere;
 }
 
 .accessNote {
@@ -979,6 +1180,49 @@
     display: none;
   }
 
+  .detailModalLayer {
+    align-items: end;
+    padding: 8px 6px 0;
+  }
+
+  .detailModal {
+    width: 100%;
+    max-height: calc(100% - 4px);
+    border-radius: 20px 20px 0 0;
+  }
+
+  .detailModalHeader {
+    grid-template-columns: 42px minmax(0, 1fr) 40px;
+    gap: 9px;
+    padding: 12px;
+  }
+
+  .detailModalHeader > .networkIcon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .detailModalTitle strong {
+    font-size: 13px;
+  }
+
+  .detailModalCapacity {
+    display: none;
+  }
+
+  .detailModalClose {
+    width: 40px;
+    height: 40px;
+  }
+
+  .detailModalBody {
+    padding: 10px 12px 18px;
+  }
+
+  .detailModalStatus {
+    grid-template-columns: 1fr;
+  }
+
   .stationDetails > footer {
     align-items: stretch;
     flex-direction: column;
@@ -996,5 +1240,11 @@
 
   .priceSegments span {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detailModal {
+    animation: none;
   }
 }

@@ -4,6 +4,12 @@ import { Icon } from "@iconify/react";
 import { useEffect, useMemo, useRef } from "react";
 
 import {
+  getFacilityNamesByGarageIds,
+  PAID_OVERNIGHT_PARKING_GUIDANCE,
+  PARKING_FACILITY_DATA_SOURCES,
+  PARKING_RATE_PROFILES,
+} from "@/data/parking-facilities";
+import {
   CAMPUS_PARKING_ACCESS_WINDOWS,
   CAMPUS_PARKING_ZONE_GUIDE,
   classifyCampusParkingTime,
@@ -52,6 +58,7 @@ export function ParkingAccessGuide({
   onEditPermit: () => void;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
   const time = useMemo(() => classifyCampusParkingTime(now), [now]);
   const summary = useMemo(
     () =>
@@ -67,6 +74,10 @@ export function ParkingAccessGuide({
   const activeWindow = currentWindowId(time);
 
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
     if (!open) return;
     const previousFocus =
       document.activeElement instanceof HTMLElement
@@ -78,7 +89,33 @@ export function ParkingAccessGuide({
         ?.focus({ preventScroll: true });
     });
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1) ?? first;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialogRef.current.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialogRef.current.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", handleKey);
     return () => {
@@ -86,12 +123,23 @@ export function ParkingAccessGuide({
       document.removeEventListener("keydown", handleKey);
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
-  }, [onClose, open]);
+  }, [open]);
 
   if (!open) return null;
 
   const noPermit = permitCode === "none";
   const visitor = permitCode === "visitor";
+  const showPaidOvernightFallback =
+    activeWindow === "overnight" &&
+    !noPermit &&
+    !visitor &&
+    currentZones.size === 0;
+  const paidAcademicGarages = getFacilityNamesByGarageIds(
+    PAID_OVERNIGHT_PARKING_GUIDANCE.academicGarageIds,
+  );
+  const paidMedicalGarages = getFacilityNamesByGarageIds(
+    PAID_OVERNIGHT_PARKING_GUIDANCE.medicalCenterGarageIds,
+  );
 
   return (
     <div className="modal-layer access-guide-layer">
@@ -99,6 +147,7 @@ export function ParkingAccessGuide({
         type="button"
         className="modal-backdrop"
         onClick={onClose}
+        tabIndex={-1}
         aria-label="关闭通行时段说明"
       />
       <section
@@ -107,6 +156,7 @@ export function ParkingAccessGuide({
         role="dialog"
         aria-modal="true"
         aria-labelledby="access-guide-title"
+        tabIndex={-1}
       >
         <header className="access-guide__header">
           <div>
@@ -142,6 +192,73 @@ export function ParkingAccessGuide({
               <Icon icon="solar:alt-arrow-right-linear" />
             </button>
           </section>
+
+          {showPaidOvernightFallback && (
+            <section className="access-guide-paid-fallback" role="note">
+              <header>
+                <span>
+                  <Icon icon="solar:moon-stars-bold-duotone" />
+                </span>
+                <div>
+                  <small>停车证当前没有通用准停区</small>
+                  <h3>仍可改用明确开放的访客付费停车</h3>
+                  <p>
+                    下列选项不是停车证权益；必须走访客入口或停入按小时位置并完成付款。
+                  </p>
+                </div>
+              </header>
+              <div className="access-guide-paid-fallback__groups">
+                <article>
+                  <b>Academic 24/7 访客车库</b>
+                  <p>{paidAcademicGarages.join(" · ")}</p>
+                  <span>
+                    {PARKING_RATE_PROFILES["academic-garage"].startingRateZh} · 日上限 $
+                    {PARKING_RATE_PROFILES["academic-garage"].dailyMaximumUsd}
+                  </span>
+                </article>
+                <article>
+                  <b>Medical Center 24/7 访客车库</b>
+                  <p>{paidMedicalGarages.join(" · ")}</p>
+                  <span>
+                    {PARKING_RATE_PROFILES["medical-center-garage"].startingRateZh} · 日上限 $
+                    {PARKING_RATE_PROFILES["medical-center-garage"].dailyMaximumUsd}
+                  </span>
+                </article>
+                <article>
+                  <b>明确标出的按小时地面位</b>
+                  <p>{PAID_OVERNIGHT_PARKING_GUIDANCE.surfaceScopeZh}</p>
+                  <span>
+                    {PARKING_RATE_PROFILES["surface-hourly"].startingRateZh} · 非高峰上限 $
+                    {PARKING_RATE_PROFILES["surface-hourly"].offPeakMaximumUsd}
+                  </span>
+                </article>
+              </div>
+              <footer>
+                <p>
+                  <Icon icon="solar:danger-triangle-bold-duotone" />
+                  {PAID_OVERNIGHT_PARKING_GUIDANCE.warningZh}
+                </p>
+                <div>
+                  <a
+                    href={PARKING_FACILITY_DATA_SOURCES.visitorParking}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    官方访客费率
+                    <Icon icon="solar:arrow-right-up-linear" />
+                  </a>
+                  <a
+                    href={PARKING_FACILITY_DATA_SOURCES.lateNight}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    持证 late-night 区
+                    <Icon icon="solar:arrow-right-up-linear" />
+                  </a>
+                </div>
+              </footer>
+            </section>
+          )}
 
           <section className="access-guide-section">
             <div className="access-guide-section__title">

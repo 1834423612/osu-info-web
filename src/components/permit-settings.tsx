@@ -5,6 +5,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CampusParkingMap } from "@/components/map/campus-parking-map";
 import {
+  getFacilityNamesByGarageIds,
+  PAID_OVERNIGHT_PARKING_GUIDANCE,
+  PARKING_FACILITY_DATA_SOURCES,
+} from "@/data/parking-facilities";
+import {
   ACCESSIBLE_PERMIT_GUIDANCE,
   estimateVisitorParkingCost,
   getCurrentAccessSummary,
@@ -54,6 +59,15 @@ export function getSelectedPermitLabel(code: string) {
 function OvernightCostPlanner() {
   const [hours, setHours] = useState(2);
   const estimate = estimateVisitorParkingCost(hours);
+  const academicGarages = getFacilityNamesByGarageIds(
+    PAID_OVERNIGHT_PARKING_GUIDANCE.academicGarageIds,
+  );
+  const medicalGarages = getFacilityNamesByGarageIds(
+    PAID_OVERNIGHT_PARKING_GUIDANCE.medicalCenterGarageIds,
+  );
+  const mappedSurfaceLots = getFacilityNamesByGarageIds(
+    PAID_OVERNIGHT_PARKING_GUIDANCE.mappedSurfaceLotIds,
+  );
 
   return (
     <section className="overnight-cost-planner">
@@ -62,8 +76,8 @@ function OvernightCostPlanner() {
           <Icon icon="solar:moon-stars-bold-duotone" />
         </span>
         <div>
-          <small>没有正式 overnight 权限时</small>
-          <strong>按官方访客费率估算</strong>
+          <small>停车证不含工作日 3–5 a.m. 时</small>
+          <strong>仍可选择明确开放的付费位置</strong>
         </div>
         <div className="overnight-cost-planner__duration" aria-label="停车时长">
           {[2, 4, 8].map((option) => (
@@ -96,17 +110,51 @@ function OvernightCostPlanner() {
           <i>日上限 $15.75</i>
         </span>
       </div>
+      <div className="permit-notes" role="note" aria-label="凌晨付费停车分区">
+        <p>
+          <Icon icon="solar:buildings-2-bold-duotone" />
+          <span>
+            <strong>Academic · 24/7 访客车库</strong>
+            <br />
+            {academicGarages.join("、")}
+          </span>
+        </p>
+        <p>
+          <Icon icon="solar:hospital-bold-duotone" />
+          <span>
+            <strong>Medical Center · 24/7 访客车库</strong>
+            <br />
+            {medicalGarages.join("、")}
+          </span>
+        </p>
+        <p>
+          <Icon icon="solar:map-point-wave-bold-duotone" />
+          <span>
+            <strong>按小时地面位</strong>
+            <br />
+            {PAID_OVERNIGHT_PARKING_GUIDANCE.surfaceScopeZh}；当前地图示例：
+            {mappedSurfaceLots.join("、")}
+          </span>
+        </p>
+      </div>
       <p>
-        标准工作日 3–5 a.m. 为 2 小时；仅限明确允许 overnight
-        的按小时位置或 24/7 访客车库。跨午夜、活动和验证优惠以 ParkMobile/
-        入口为准。
+        {PAID_OVERNIGHT_PARKING_GUIDANCE.warningZh}
+        车库费率每日午夜重置；活动和医院验证优惠以 ParkMobile/入口为准。
       </p>
       <a
         href={VISITOR_PARKING_RATES_2026_27.sourceUrl}
         target="_blank"
         rel="noreferrer"
       >
-        核对官方费率
+        访客费率与 overnight 付费规则
+        <Icon icon="solar:arrow-right-up-linear" />
+      </a>
+      <a
+        href={PARKING_FACILITY_DATA_SOURCES.lateNight}
+        target="_blank"
+        rel="noreferrer"
+      >
+        持证 commuter late-night 指定区
         <Icon icon="solar:arrow-right-up-linear" />
       </a>
     </section>

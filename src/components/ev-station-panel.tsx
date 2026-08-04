@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import styles from "@/components/ev-station-panel.module.css";
 import type {
@@ -27,7 +27,9 @@ export type EvStationPanelProps = {
   updatedAt?: string;
   upstreams?: EvUpstreamStatus[];
   selectedId?: string;
+  detailOpen: boolean;
   onSelectStation?: (station: EvStation) => void;
+  onCloseDetails: () => void;
   mapVisible?: boolean;
   onToggleMap?: () => void;
 };
@@ -519,6 +521,171 @@ function StationDetails({ station }: { station: EvStation }) {
   );
 }
 
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "iframe",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function EvStationDetailModal({
+  station,
+  onClose,
+}: {
+  station: EvStation;
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  const isTesla = station.networkKind === "tesla-supercharger";
+  const distance = distanceMiles(station);
+  const operatingLabel =
+    station.status === "operational"
+      ? "当前运营中"
+      : station.status === "temporarily-unavailable"
+        ? "暂时不可用"
+        : station.status === "planned"
+          ? "规划建设中"
+          : "运营状态待确认";
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const returnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+
+    closeButtonRef.current?.focus({ preventScroll: true });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR),
+      ).filter(
+        (element) =>
+          !element.hasAttribute("disabled") && element.offsetParent !== null,
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      if (returnFocus?.isConnected && returnFocus.getClientRects().length > 0) {
+        returnFocus.focus({ preventScroll: true });
+      } else {
+        window.requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLElement>(`.${styles.selectedCard} button`)
+            ?.focus({ preventScroll: true });
+        });
+      }
+    };
+  }, [station.id]);
+
+  return (
+    <div
+      className={styles.detailModalLayer}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        className={styles.detailModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
+        <header className={styles.detailModalHeader}>
+          <span
+            className={`${styles.networkIcon} ${isTesla ? styles.teslaIcon : ""}`}
+          >
+            {isTesla ? (
+              <Icon icon="simple-icons:tesla" />
+            ) : (
+              <Icon icon="solar:bolt-circle-bold-duotone" />
+            )}
+          </span>
+          <span className={styles.detailModalTitle}>
+            <small>
+              {station.campusLocation
+                ? "OSU 校内充电站"
+                : station.operator ?? "公共充电站"}
+            </small>
+            <strong id={titleId}>{station.name}</strong>
+            <em>
+              {speedLabel(station)} · 距校园 {distance.toFixed(1)} mi
+            </em>
+          </span>
+          <span className={styles.detailModalCapacity}>
+            <strong>{station.capacity ?? "—"}</strong>
+            <small>充电端口</small>
+          </span>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className={styles.detailModalClose}
+            onClick={onClose}
+            aria-label={`关闭 ${station.name} 详情`}
+          >
+            <Icon icon="solar:close-circle-linear" />
+          </button>
+        </header>
+        <div className={styles.detailModalBody}>
+          <div className={styles.detailModalStatus}>
+            <span
+              className={
+                station.status === "operational"
+                  ? styles.operationalStatus
+                  : styles.unconfirmedStatus
+              }
+            >
+              <Icon icon="solar:bolt-bold-duotone" />
+              {operatingLabel}
+            </span>
+            <span>
+              <Icon icon="solar:clock-circle-bold-duotone" />
+              {station.hours ?? "开放时间未公开"}
+            </span>
+          </div>
+          <StationDetails station={station} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function EvStationPanel({
   stations,
   loading,
@@ -527,33 +694,18 @@ export function EvStationPanel({
   updatedAt,
   upstreams = [],
   selectedId,
+  detailOpen,
   onSelectStation,
+  onCloseDetails,
   mapVisible,
   onToggleMap,
 }: EvStationPanelProps) {
   const [filter, setFilter] = useState<StationFilter>("all");
   const [sort, setSort] = useState<StationSort>("distance");
   const [query, setQuery] = useState("");
-  const [expandedId, setExpandedId] = useState<string>();
-  const [collapsedSelectedId, setCollapsedSelectedId] = useState<string>();
-  const listRef = useRef<HTMLDivElement>(null);
-  const cardRefs = useRef(new Map<string, HTMLElement>());
-
-  useEffect(() => {
-    if (!selectedId || !stations.some((station) => station.id === selectedId)) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      const list = listRef.current;
-      const card = cardRefs.current.get(selectedId);
-      if (!list || !card) return;
-      list.scrollTo({
-        top: Math.max(0, card.offsetTop - list.offsetTop - 8),
-        behavior: "smooth",
-      });
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [selectedId, stations]);
+  const selectedStation = detailOpen
+    ? stations.find((station) => station.id === selectedId)
+    : undefined;
 
   const filteredStations = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -749,43 +901,27 @@ export function EvStationPanel({
         </div>
       </div>
 
-      <div className={styles.stationList} ref={listRef}>
+      <div className={styles.stationList}>
         {filteredStations.map((station) => {
-          const expanded =
-            expandedId === station.id ||
-            (selectedId === station.id && collapsedSelectedId !== station.id);
+          const selected = selectedId === station.id;
           const distance = distanceMiles(station);
           const isTesla = station.networkKind === "tesla-supercharger";
           const cardClass =
             styles.stationCard +
-            (expanded ? " " + styles.expandedCard : "");
+            (selected ? " " + styles.selectedCard : "");
           const iconClass =
             styles.networkIcon + (isTesla ? " " + styles.teslaIcon : "");
           return (
             <article
               key={station.id}
               className={cardClass}
-              ref={(node) => {
-                if (node) cardRefs.current.set(station.id, node);
-                else cardRefs.current.delete(station.id);
-              }}
             >
               <button
                 type="button"
                 className={styles.stationSummary}
-                onClick={() => {
-                  if (expanded) {
-                    setExpandedId(undefined);
-                    if (selectedId === station.id) {
-                      setCollapsedSelectedId(station.id);
-                    }
-                  } else {
-                    setExpandedId(station.id);
-                    setCollapsedSelectedId(undefined);
-                  }
-                  onSelectStation?.(station);
-                }}
-                aria-expanded={expanded}
+                onClick={() => onSelectStation?.(station)}
+                aria-haspopup="dialog"
+                aria-label={`查看 ${station.name} 充电站详情`}
               >
                 <span className={iconClass}>
                   {isTesla ? (
@@ -811,10 +947,9 @@ export function EvStationPanel({
                 </span>
                 <Icon
                   className={styles.chevron}
-                  icon="solar:alt-arrow-down-linear"
+                  icon="solar:alt-arrow-right-linear"
                 />
               </button>
-              {expanded && <StationDetails station={station} />}
             </article>
           );
         })}
@@ -826,6 +961,12 @@ export function EvStationPanel({
           </div>
         )}
       </div>
+      {selectedStation && (
+        <EvStationDetailModal
+          station={selectedStation}
+          onClose={onCloseDetails}
+        />
+      )}
     </section>
   );
 }

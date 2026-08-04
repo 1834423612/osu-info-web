@@ -1,10 +1,17 @@
 "use client";
 
 import { Icon } from "@iconify/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import type { ParkingAccessPresentation } from "@/components/parking-card";
 import { OccupancyRing } from "@/components/ui/occupancy-ring";
+import {
+  FACILITY_ACCESS_LABELS_ZH,
+  getParkingFacilityDetails,
+  PARKING_FACILITY_DATA_SOURCES,
+  PARKING_PAYMENT_PROFILES,
+  PARKING_RATE_PROFILES,
+} from "@/data/parking-facilities";
 import { CABS_ROUTE_LABELS } from "@/data/parking-locations";
 import { formatCampusModified } from "@/lib/parking-feed";
 import {
@@ -15,6 +22,7 @@ import {
 } from "@/lib/utils";
 import type { EvStation } from "@/types/ev";
 import type { ParkingLocation } from "@/types/parking";
+import type { TransitRoute } from "@/types/transit";
 
 function accessText(type: number) {
   if (type === 2) {
@@ -47,45 +55,47 @@ export function ParkingDetailSheet({
   access,
   permitName,
   permitMessage,
+  nearestEvStation,
   nearestFastCharger,
+  transitRoutes = [],
   escapeEnabled = true,
   onClose,
   onToggleFavorite,
+  onLocateEvStation,
+  onLocateTransitRoute,
 }: {
   location?: ParkingLocation;
   access?: ParkingAccessPresentation;
   permitName: string;
   permitMessage: string;
+  nearestEvStation?: EvStation;
   nearestFastCharger?: EvStation;
+  transitRoutes?: readonly TransitRoute[];
   escapeEnabled?: boolean;
   onClose: () => void;
   onToggleFavorite: () => void;
+  onLocateEvStation?: (station: EvStation) => void;
+  onLocateTransitRoute?: (routeCode: string) => void;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const detailSheetRef = useRef<HTMLElement>(null);
-  const [isModal, setIsModal] = useState(false);
+  const onCloseRef = useRef(onClose);
   const locationId = location?.GarageId;
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 820px)");
-    const syncMode = () => setIsModal(media.matches);
-    const frame = window.requestAnimationFrame(syncMode);
-    media.addEventListener("change", syncMode);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      media.removeEventListener("change", syncMode);
-    };
-  }, []);
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
-    if (!location || !escapeEnabled) return;
+    if (locationId === undefined || !escapeEnabled) return;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        event.stopPropagation();
+        onCloseRef.current();
         return;
       }
-      if (event.key !== "Tab" || !isModal || !detailSheetRef.current) return;
+      if (event.key !== "Tab" || !detailSheetRef.current) return;
       const focusable = Array.from(
         detailSheetRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
@@ -107,7 +117,7 @@ export function ParkingDetailSheet({
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [escapeEnabled, isModal, location, onClose]);
+  }, [escapeEnabled, locationId]);
 
   useEffect(() => {
     if (locationId === undefined) return;
@@ -121,7 +131,7 @@ export function ParkingDetailSheet({
     return () => {
       window.cancelAnimationFrame(frame);
       window.requestAnimationFrame(() => {
-        if (previousFocus?.isConnected) {
+        if (previousFocus?.isConnected && previousFocus.getClientRects().length > 0) {
           previousFocus.focus({ preventScroll: true });
           return;
         }
@@ -140,6 +150,27 @@ export function ParkingDetailSheet({
   if (!location) return null;
 
   const fallbackAccess = accessText(location.GarageType);
+  const facility = getParkingFacilityDetails(location.GarageId);
+  const facilityRate = facility?.rateProfile
+    ? PARKING_RATE_PROFILES[facility.rateProfile]
+    : undefined;
+  const facilityPayment = facility
+    ? PARKING_PAYMENT_PROFILES[facility.paymentProfile]
+    : undefined;
+  const officialFacilityUrl = facility?.officialUrl || location.GarageUrl;
+  const availableRouteHints = location.routeHints.flatMap((routeCode) => {
+    const normalizedCode = routeCode.trim().toUpperCase();
+    const route = transitRoutes.find(
+      (candidate) => candidate.code.trim().toUpperCase() === normalizedCode,
+    );
+    return route ? [{ routeCode: normalizedCode, route }] : [];
+  });
+  const unavailableRouteHints = location.routeHints.filter((routeCode) => {
+    const normalizedCode = routeCode.trim().toUpperCase();
+    return !transitRoutes.some(
+      (candidate) => candidate.code.trim().toUpperCase() === normalizedCode,
+    );
+  });
 
   return (
     <div className="detail-layer detail-layer--workspace">
@@ -147,14 +178,18 @@ export function ParkingDetailSheet({
         type="button"
         className="detail-backdrop"
         onClick={onClose}
+        tabIndex={-1}
         aria-label="关闭停车详情"
       />
       <aside
         ref={detailSheetRef}
         className="detail-sheet"
         role="dialog"
-        aria-modal={isModal || undefined}
+        aria-modal={escapeEnabled || undefined}
+        aria-hidden={!escapeEnabled || undefined}
+        inert={!escapeEnabled}
         aria-labelledby="parking-detail-title"
+        tabIndex={-1}
       >
         <div className="detail-sheet__handle" aria-hidden="true" />
         <header className="detail-sheet__hero">
@@ -266,6 +301,116 @@ export function ParkingDetailSheet({
             </div>
           </section>
 
+          {facility && (
+            <section className="detail-section detail-section--facility">
+              <div className="detail-section__heading">
+                <span className="section-icon section-icon--amber">
+                  <Icon icon="solar:buildings-2-bold" />
+                </span>
+                <div>
+                  <h3>CampusParc 官方设施资料</h3>
+                  <p>费率、入口、容量与支付方式</p>
+                </div>
+              </div>
+
+              <dl className="facility-facts">
+                <div>
+                  <dt>官方容量</dt>
+                  <dd>
+                    {formatNumber(facility.capacity.total)} 位 · {facility.capacity.accessible} 个无障碍位
+                    {facility.capacity.valet
+                      ? ` · ${facility.capacity.valet} 个代客泊车位`
+                      : ""}
+                  </dd>
+                </div>
+                <div>
+                  <dt>限高</dt>
+                  <dd>{facility.clearance ?? "地面停车场 · 不适用"}</dd>
+                </div>
+                <div>
+                  <dt>访客入口</dt>
+                  <dd
+                    className={
+                      facility.access.visitor === "none" ? "is-closed" : undefined
+                    }
+                  >
+                    {FACILITY_ACCESS_LABELS_ZH[facility.access.visitor]}
+                  </dd>
+                </div>
+                <div>
+                  <dt>停车证入口</dt>
+                  <dd>{FACILITY_ACCESS_LABELS_ZH[facility.access.permit]}</dd>
+                </div>
+              </dl>
+
+              {facility.access.visitor === "none" ? (
+                <div className="facility-access-warning" role="note">
+                  <Icon icon="solar:forbidden-circle-bold-duotone" />
+                  <span>
+                    <strong>这里不提供访客付费入口</strong>
+                    <small>
+                      付款不能代替停车证权限；请改用明确显示全天访客入口的设施。
+                    </small>
+                  </span>
+                </div>
+              ) : (
+                facilityRate && (
+                  <div className="facility-rate-card">
+                    <span>
+                      <small>{facilityRate.labelZh}</small>
+                      <strong>{facilityRate.startingRateZh}</strong>
+                    </span>
+                    <span>
+                      <small>日上限</small>
+                      <strong>
+                        {"dailyMaximumUsd" in facilityRate &&
+                        facilityRate.dailyMaximumUsd
+                          ? `$${facilityRate.dailyMaximumUsd.toFixed(2)}`
+                          : "按时计费"}
+                      </strong>
+                    </span>
+                    <span>
+                      <small>非高峰上限</small>
+                      <strong>${facilityRate.offPeakMaximumUsd.toFixed(2)}</strong>
+                    </span>
+                    <p>{facilityRate.detailZh}</p>
+                  </div>
+                )
+              )}
+
+              {facilityPayment && (
+                <div className="facility-payment-card">
+                  <Icon icon="solar:wallet-money-bold-duotone" />
+                  <span>
+                    <strong>{facilityPayment.labelZh}</strong>
+                    <small>{facilityPayment.detailZh}</small>
+                  </span>
+                </div>
+              )}
+
+              {facility.services.length > 0 && (
+                <div className="facility-services">
+                  {facility.services.map((service) => (
+                    <span key={service}>
+                      <Icon icon="solar:check-circle-bold-duotone" />
+                      {service}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {facility.nearbyPoints.length > 0 && (
+                <div className="facility-nearby">
+                  <small>附近地点</small>
+                  <p>{facility.nearbyPoints.join(" · ")}</p>
+                </div>
+              )}
+              <p className="facility-source-note">
+                CampusParc 核对于 {PARKING_FACILITY_DATA_SOURCES.verifiedOn}；实时入口提示、活动安排与现场标牌优先。
+              </p>
+            </section>
+          )}
+
           {(location.evCharging || nearestFastCharger) && (
             <section className="detail-section">
               <div className="detail-section__heading">
@@ -279,16 +424,36 @@ export function ParkingDetailSheet({
               </div>
               <div className="detail-info-list">
                 {location.evCharging && (
-                  <div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      nearestEvStation && onLocateEvStation?.(nearestEvStation)
+                    }
+                    disabled={!nearestEvStation || !onLocateEvStation}
+                    title={
+                      nearestEvStation
+                        ? `在地图定位 ${nearestEvStation.name}`
+                        : "附近充电站坐标暂不可用"
+                    }
+                  >
                     <Icon icon="solar:plug-circle-bold-duotone" />
                     <span>
                       <strong>此处有官方 Level 2 充电位</strong>
                       <small>ChargePoint 双枪；需同时满足该区域停车权限</small>
                     </span>
-                  </div>
+                    <Icon
+                      className="detail-info-list__locate"
+                      icon="solar:map-point-wave-bold-duotone"
+                    />
+                  </button>
                 )}
                 {nearestFastCharger && (
-                  <div>
+                  <button
+                    type="button"
+                    onClick={() => onLocateEvStation?.(nearestFastCharger)}
+                    disabled={!onLocateEvStation}
+                    title={`在地图定位 ${nearestFastCharger.name}`}
+                  >
                     <Icon
                       icon={
                         nearestFastCharger.networkKind ===
@@ -317,7 +482,11 @@ export function ParkingDetailSheet({
                           .join(" · ") || "附近直流快充"}
                       </small>
                     </span>
-                  </div>
+                    <Icon
+                      className="detail-info-list__locate"
+                      icon="solar:map-point-wave-bold-duotone"
+                    />
+                  </button>
                 )}
               </div>
             </section>
@@ -334,16 +503,49 @@ export function ParkingDetailSheet({
                   <p>校园公交线路提示</p>
                 </div>
               </div>
-              <div className="route-pills">
-                {location.routeHints.map((route) => (
-                  <span key={route}>
-                    <b>{route}</b>
-                    {CABS_ROUTE_LABELS[
-                      route as keyof typeof CABS_ROUTE_LABELS
-                    ] ?? "校园线路"}
-                  </span>
-                ))}
-              </div>
+              {availableRouteHints.length > 0 && (
+                <div className="route-pills">
+                  {availableRouteHints.map(
+                    ({ routeCode, route: officialRoute }) => {
+                      const routeColor =
+                        officialRoute.color ||
+                        officialRoute.darkColor ||
+                        "#1677d2";
+                      return (
+                        <button
+                          type="button"
+                          key={routeCode}
+                          style={
+                            {
+                              "--route-color": routeColor,
+                            } as React.CSSProperties
+                          }
+                          onClick={() => onLocateTransitRoute?.(routeCode)}
+                          disabled={!onLocateTransitRoute}
+                          title={`在地图显示 ${routeCode} 完整线路`}
+                        >
+                          <b>{routeCode}</b>
+                          <span>
+                            {officialRoute.name ??
+                              CABS_ROUTE_LABELS[
+                                routeCode as keyof typeof CABS_ROUTE_LABELS
+                              ] ??
+                              "校园线路"}
+                          </span>
+                          <Icon icon="solar:map-point-wave-bold-duotone" />
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+              {unavailableRouteHints.length > 0 && (
+                <p className="detail-note">
+                  {transitRoutes.length > 0
+                    ? `${unavailableRouteHints.join(" / ")} 当前未出现在 OSU 实时线路目录中，因此不显示无效的定位按钮。`
+                    : "OSU 实时线路目录暂未返回；为避免误导，已暂时隐藏线路定位按钮。"}
+                </p>
+              )}
             </section>
           )}
 
@@ -375,7 +577,7 @@ export function ParkingDetailSheet({
           </a>
           <a
             className="button button--secondary"
-            href={location.GarageUrl}
+            href={officialFacilityUrl}
             target="_blank"
             rel="noreferrer"
           >

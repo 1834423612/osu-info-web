@@ -31,7 +31,8 @@ export const PERMIT_ACCESS_MODEL_SOURCES = {
   garageAccess:
     "https://osu.campusparc.com/media/wnhdw3z5/garageaccesstablepy261027.pdf",
   definitions: "https://osu.campusparc.com/parking-definitions/",
-  offPeak: "https://osu.campusparc.com/off-peak-parking/",
+  offPeak:
+    "https://osu.campusparc.com/find-parking/off-peak-permit-parking/",
   visitor:
     "https://osu.campusparc.com/find-parking/academic-visitor-parking/",
 } as const;
